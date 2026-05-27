@@ -16,7 +16,7 @@ Library.FlagCallbacks      = {}
 Library.Connections        = {}
 Library.Windows            = {}
 Library.Open               = true
-Library.Version            = "3.0.0"
+Library.Version            = "3.1.0"
 Library.Name               = "Obscura"
 Library._activeDropdown    = nil
 Library._activeColorpicker = nil
@@ -31,24 +31,107 @@ local HttpService = game:GetService("HttpService")
 local LP          = Players.LocalPlayer
 
 ----------------------------------------------------------------------
--- THEME (Material light × iOS)
+-- THEMES (Material light × iOS, plus Dark variant)
 ----------------------------------------------------------------------
-local Theme = {
-    Bg          = Color3.fromRGB(255, 255, 255),  -- surface
-    Bg2         = Color3.fromRGB(247, 247, 249),  -- surface variant (cards/inputs)
-    Bg3         = Color3.fromRGB(238, 238, 242),  -- pressed / dropdown bg
-    Hover       = Color3.fromRGB(232, 232, 237),  -- hover state
-    Border      = Color3.fromRGB(228, 228, 232),  -- subtle outline
-    BorderHi    = Color3.fromRGB(199, 199, 204),  -- stronger outline
-    Text        = Color3.fromRGB(28, 28, 30),     -- primary text
-    SubText     = Color3.fromRGB(110, 110, 115),  -- secondary text
-    DimText     = Color3.fromRGB(174, 174, 178),  -- placeholder / dim
-    Accent      = Color3.fromRGB(0, 0, 0),        -- pure black accent
-    AccentText  = Color3.fromRGB(255, 255, 255),  -- text on accent
-    Track       = Color3.fromRGB(229, 229, 234),  -- toggle / slider track
+local ThemeLight = {
+    Bg          = Color3.fromRGB(255, 255, 255),
+    Bg2         = Color3.fromRGB(247, 247, 249),
+    Bg3         = Color3.fromRGB(238, 238, 242),
+    Hover       = Color3.fromRGB(232, 232, 237),
+    Border      = Color3.fromRGB(228, 228, 232),
+    BorderHi    = Color3.fromRGB(199, 199, 204),
+    Text        = Color3.fromRGB(28, 28, 30),
+    SubText     = Color3.fromRGB(110, 110, 115),
+    DimText     = Color3.fromRGB(174, 174, 178),
+    Accent      = Color3.fromRGB(0, 0, 0),
+    AccentText  = Color3.fromRGB(255, 255, 255),
+    Track       = Color3.fromRGB(229, 229, 234),
     Shadow      = Color3.fromRGB(0, 0, 0),
 }
-Library.Theme = Theme
+local ThemeDark = {
+    Bg          = Color3.fromRGB(22, 22, 24),
+    Bg2         = Color3.fromRGB(30, 30, 33),
+    Bg3         = Color3.fromRGB(40, 40, 44),
+    Hover       = Color3.fromRGB(48, 48, 52),
+    Border      = Color3.fromRGB(44, 44, 48),
+    BorderHi    = Color3.fromRGB(72, 72, 78),
+    Text        = Color3.fromRGB(244, 244, 248),
+    SubText     = Color3.fromRGB(170, 170, 178),
+    DimText     = Color3.fromRGB(110, 110, 115),
+    Accent      = Color3.fromRGB(255, 255, 255),
+    AccentText  = Color3.fromRGB(0, 0, 0),
+    Track       = Color3.fromRGB(48, 48, 52),
+    Shadow      = Color3.fromRGB(0, 0, 0),
+}
+
+local Theme = {}
+for k, v in pairs(ThemeLight) do Theme[k] = v end
+Library.Theme       = Theme
+Library.Themes      = { light = ThemeLight, dark = ThemeDark }
+Library.CurrentTheme = "light"
+
+-- Snap two Color3 if their components are within tolerance
+local function colorEq(a, b)
+    if not a or not b then return false end
+    return math.abs(a.R - b.R) < 0.001
+       and math.abs(a.G - b.G) < 0.001
+       and math.abs(a.B - b.B) < 0.001
+end
+
+function Library:SetTheme(name)
+    local target = self.Themes[name] or self.Themes.light
+    if not target then return end
+    -- snapshot old palette
+    local old = {}
+    for k, v in pairs(Theme) do old[k] = v end
+    -- mutate Theme in place
+    for k, v in pairs(target) do Theme[k] = v end
+    self.CurrentTheme = name
+
+    local sg = self.ScreenGui
+    if not sg then return end
+
+    local function remap(c)
+        if not c then return nil end
+        for k, oldC in pairs(old) do
+            if colorEq(c, oldC) then return target[k] end
+        end
+        return nil
+    end
+
+    local instances = sg:GetDescendants()
+    table.insert(instances, sg)
+    for _, inst in ipairs(instances) do
+        if inst:GetAttribute("ObsPreserve") then
+            -- skip explicitly preserved elements (e.g. picker cursors)
+        else
+        local cls = inst.ClassName
+        if cls == "Frame" or cls == "TextButton" or cls == "TextBox"
+        or cls == "ImageButton" or cls == "ImageLabel" or cls == "ScrollingFrame" then
+            local nc = remap(inst.BackgroundColor3)
+            if nc then inst.BackgroundColor3 = nc end
+        end
+        if cls == "ScrollingFrame" then
+            local sc = remap(inst.ScrollBarImageColor3)
+            if sc then inst.ScrollBarImageColor3 = sc end
+        end
+        if cls == "TextLabel" or cls == "TextButton" or cls == "TextBox" then
+            local nt = remap(inst.TextColor3)
+            if nt then inst.TextColor3 = nt end
+            local pt = remap(inst.PlaceholderColor3)
+            if pt then inst.PlaceholderColor3 = pt end
+        end
+        if cls == "ImageLabel" or cls == "ImageButton" then
+            local ic = remap(inst.ImageColor3)
+            if ic then inst.ImageColor3 = ic end
+        end
+        if cls == "UIStroke" then
+            local sc = remap(inst.Color)
+            if sc then inst.Color = sc end
+        end
+        end
+    end
+end
 
 local FONT, FONT_M, FONT_SB, FONT_B =
     Enum.Font.Gotham,
@@ -435,6 +518,7 @@ function Library:Destroy()
     Library.Windows, Library.Flags, Library.FlagCallbacks = {}, {}, {}
     Library.MobileButton, Library.NotifyHolder = nil, nil
     Library._activeDropdown, Library._activeColorpicker, Library._listeningKeybind = nil, nil, nil
+    Library._notifications = {}
 end
 
 ----------------------------------------------------------------------
@@ -709,7 +793,7 @@ function Library:CreateWindow(opts)
         Size                   = UDim2.new(1, 0, 1, -1),
         BackgroundTransparency = 1,
     })
-    pad(tabRow, 8, 0, 8, 0)
+    pad(tabRow, 16, 0, 16, 0)
     local tabLayout = listLayout(tabRow,
         Enum.FillDirection.Horizontal, 0,
         Enum.HorizontalAlignment.Center, Enum.VerticalAlignment.Center)
@@ -1191,7 +1275,7 @@ function Section:AddToggle(opts)
 end
 
 ----------------------------------------------------------------------
--- SLIDER (Material thin track + larger thumb)
+-- SLIDER (thick pill, no thumb)
 ----------------------------------------------------------------------
 function Section:AddSlider(opts)
     opts = opts or {}
@@ -1206,7 +1290,7 @@ function Section:AddSlider(opts)
 
     local frame = new("Frame", {
         Parent                 = self.Content,
-        Size                   = UDim2.new(1, 0, 0, 44),
+        Size                   = UDim2.new(1, 0, 0, 46),
         BackgroundTransparency = 1,
         Active                 = true,
     })
@@ -1215,11 +1299,11 @@ function Section:AddSlider(opts)
     local label = new("TextLabel", {
         Parent                 = frame,
         BackgroundTransparency = 1,
-        Position               = UDim2.fromOffset(0, 2),
-        Size                   = UDim2.new(1, -90, 0, 16),
+        Position               = UDim2.fromOffset(2, 0),
+        Size                   = UDim2.new(1, -4, 0, 16),
         Font                   = FONT_M,
-        TextSize               = TEXT_MD,
-        TextColor3             = Theme.Text,
+        TextSize               = TEXT_SM,
+        TextColor3             = Theme.SubText,
         TextXAlignment         = Enum.TextXAlignment.Left,
         Text                   = text,
     })
@@ -1227,22 +1311,25 @@ function Section:AddSlider(opts)
         Parent                 = frame,
         BackgroundTransparency = 1,
         AnchorPoint            = Vector2.new(1, 0),
-        Position               = UDim2.new(1, 0, 0, 2),
-        Size                   = UDim2.fromOffset(80, 16),
-        Font                   = FONT_M,
+        Position               = UDim2.new(1, -2, 0, 0),
+        Size                   = UDim2.fromOffset(120, 16),
+        Font                   = FONT_SB,
         TextSize               = TEXT_SM,
-        TextColor3             = Theme.SubText,
+        TextColor3             = Theme.Text,
         TextXAlignment         = Enum.TextXAlignment.Right,
         Text                   = tostring(default) .. suffix,
     })
 
+    -- Thick track (pill, 14px)
+    local TRACK_H = 14
     local track = new("Frame", {
         Parent           = frame,
-        Position         = UDim2.new(0, 0, 0, 28),
-        Size             = UDim2.new(1, 0, 0, 4),
+        Position         = UDim2.new(0, 0, 0, 22),
+        Size             = UDim2.new(1, 0, 0, TRACK_H),
         BackgroundColor3 = Theme.Track,
         BorderSizePixel  = 0,
         Active           = true,
+        ClipsDescendants = true,
     })
     corner(track, R_PILL)
     local fill = new("Frame", {
@@ -1253,40 +1340,15 @@ function Section:AddSlider(opts)
     })
     corner(fill, R_PILL)
 
-    local thumb = new("Frame", {
-        Parent           = track,
-        AnchorPoint      = Vector2.new(0.5, 0.5),
-        Position         = UDim2.new(0, 0, 0.5, 0),
-        Size             = UDim2.fromOffset(14, 14),
-        BackgroundColor3 = Theme.Accent,
-        BorderSizePixel  = 0,
-        ZIndex           = 2,
-    })
-    corner(thumb, R_PILL)
-    -- soft halo on press
-    local halo = new("Frame", {
-        Parent                 = thumb,
-        AnchorPoint            = Vector2.new(0.5, 0.5),
-        Position               = UDim2.fromScale(0.5, 0.5),
-        Size                   = UDim2.fromOffset(0, 0),
-        BackgroundColor3       = Theme.Accent,
-        BackgroundTransparency = 0.85,
-        BorderSizePixel        = 0,
-        ZIndex                 = 1,
-    })
-    corner(halo, R_PILL)
-
     local value = default
     local api = {}
 
     local function render(snap)
         local pct = (maxV == minV) and 0 or (value - minV) / (maxV - minV)
         if snap then
-            fill.Size      = UDim2.new(pct, 0, 1, 0)
-            thumb.Position = UDim2.new(pct, 0, 0.5, 0)
+            fill.Size = UDim2.new(pct, 0, 1, 0)
         else
-            tween(fill,  0.08, { Size = UDim2.new(pct, 0, 1, 0) })
-            tween(thumb, 0.08, { Position = UDim2.new(pct, 0, 0.5, 0) })
+            tween(fill, 0.10, { Size = UDim2.new(pct, 0, 1, 0) })
         end
         valueLabel.Text = tostring(round(value, decimals)) .. suffix
     end
@@ -1316,12 +1378,12 @@ function Section:AddSlider(opts)
         if input.UserInputType == Enum.UserInputType.MouseButton1
         or input.UserInputType == Enum.UserInputType.Touch then
             dragging = true
-            tween(halo, 0.16, { Size = UDim2.fromOffset(28, 28) })
+            tween(track, 0.12, { Size = UDim2.new(1, 0, 0, TRACK_H + 2),
+                                 Position = UDim2.new(0, 0, 0, 21) })
             updateFromInput(input)
         end
     end
     track.InputBegan:Connect(onBegan)
-    frame.InputBegan:Connect(onBegan)
 
     register(UIS.InputChanged:Connect(function(input)
         if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
@@ -1333,7 +1395,8 @@ function Section:AddSlider(opts)
         if dragging and (input.UserInputType == Enum.UserInputType.MouseButton1
         or input.UserInputType == Enum.UserInputType.Touch) then
             dragging = false
-            tween(halo, 0.16, { Size = UDim2.fromOffset(0, 0) })
+            tween(track, 0.16, { Size = UDim2.new(1, 0, 0, TRACK_H),
+                                 Position = UDim2.new(0, 0, 0, 22) })
         end
     end))
 
@@ -1515,36 +1578,34 @@ function Section:AddDropdown(opts)
                 ZIndex                 = 1001,
             })
             corner(item, R_SM)
+            local isCurrent = (current == opt)
+            if isCurrent then
+                item.BackgroundTransparency = 0
+                item.BackgroundColor3       = Theme.Accent
+            end
             local itemLbl = new("TextLabel", {
                 Parent                 = item,
                 BackgroundTransparency = 1,
-                Position               = UDim2.fromOffset(10, 0),
-                Size                   = UDim2.new(1, -34, 1, 0),
+                Position               = UDim2.fromOffset(12, 0),
+                Size                   = UDim2.new(1, -24, 1, 0),
                 Font                   = FONT_M,
                 TextSize               = TEXT_SM,
-                TextColor3             = (current == opt) and Theme.Accent or Theme.Text,
+                TextColor3             = isCurrent and Theme.AccentText or Theme.Text,
                 TextXAlignment         = Enum.TextXAlignment.Left,
                 TextTruncate           = Enum.TextTruncate.AtEnd,
                 Text                   = tostring(opt),
-                ZIndex                 = 1001,
-            })
-            -- check icon (visible only on selected)
-            local checkHolder = new("Frame", {
-                Parent                 = item,
-                AnchorPoint            = Vector2.new(1, 0.5),
-                Position               = UDim2.new(1, -8, 0.5, 0),
-                Size                   = UDim2.fromOffset(14, 14),
-                BackgroundTransparency = 1,
                 ZIndex                 = 1002,
             })
-            local check = drawCheck(checkHolder, 14, Theme.Accent)
-            check:SetVisible(current == opt)
 
             item.MouseEnter:Connect(function()
-                tween(item, 0.1, { BackgroundTransparency = 0, BackgroundColor3 = Theme.Bg2 })
+                if current ~= opt then
+                    tween(item, 0.1, { BackgroundTransparency = 0, BackgroundColor3 = Theme.Bg2 })
+                end
             end)
             item.MouseLeave:Connect(function()
-                tween(item, 0.1, { BackgroundTransparency = 1 })
+                if current ~= opt then
+                    tween(item, 0.1, { BackgroundTransparency = 1 })
+                end
             end)
             item.MouseButton1Click:Connect(function()
                 api:Set(opt)
@@ -1692,14 +1753,14 @@ function Section:AddMultiDropdown(opts)
             valueLabel.TextColor3 = Theme.Text
         end
         for opt, item in pairs(items) do
-            if item and item.Box then
+            if item and item.Btn then
                 local on = selected[opt] and true or false
-                item.Check:SetVisible(on)
-                tween(item.Box, 0.12, {
-                    BackgroundColor3 = on and Theme.Accent or Theme.Bg,
+                tween(item.Btn, 0.12, {
+                    BackgroundColor3       = on and Theme.Accent or Theme.Bg,
+                    BackgroundTransparency = on and 0 or 1,
                 })
-                tween(item.BoxStroke, 0.12, {
-                    Color = on and Theme.Accent or Theme.BorderHi,
+                tween(item.Label, 0.12, {
+                    TextColor3 = on and Theme.AccentText or Theme.Text,
                 })
             end
         end
@@ -1778,48 +1839,31 @@ function Section:AddMultiDropdown(opts)
             })
             corner(item, R_SM)
 
-            -- Checkbox (drawn check)
-            local box = new("Frame", {
-                Parent           = item,
-                AnchorPoint      = Vector2.new(0, 0.5),
-                Position         = UDim2.new(0, 8, 0.5, 0),
-                Size             = UDim2.fromOffset(16, 16),
-                BackgroundColor3 = Theme.Bg,
-                BorderSizePixel  = 0,
-                ZIndex           = 1002,
-            })
-            corner(box, UDim.new(0, 4))
-            local boxStroke = stroke(box, Theme.BorderHi, 1)
-            local checkHolder = new("Frame", {
-                Parent                 = box,
-                Size                   = UDim2.fromScale(1, 1),
-                BackgroundTransparency = 1,
-                ZIndex                 = 1003,
-            })
-            local check = drawCheck(checkHolder, 16, Theme.AccentText)
-            check:SetVisible(false)
-
             local lbl = new("TextLabel", {
                 Parent                 = item,
                 BackgroundTransparency = 1,
-                Position               = UDim2.fromOffset(32, 0),
-                Size                   = UDim2.new(1, -36, 1, 0),
+                Position               = UDim2.fromOffset(12, 0),
+                Size                   = UDim2.new(1, -24, 1, 0),
                 Font                   = FONT_M,
                 TextSize               = TEXT_SM,
                 TextColor3             = Theme.Text,
                 TextXAlignment         = Enum.TextXAlignment.Left,
                 TextTruncate           = Enum.TextTruncate.AtEnd,
                 Text                   = tostring(opt),
-                ZIndex                 = 1001,
+                ZIndex                 = 1002,
             })
             item.MouseEnter:Connect(function()
-                tween(item, 0.1, { BackgroundTransparency = 0, BackgroundColor3 = Theme.Bg2 })
+                if not selected[opt] then
+                    tween(item, 0.1, { BackgroundTransparency = 0, BackgroundColor3 = Theme.Bg2 })
+                end
             end)
             item.MouseLeave:Connect(function()
-                tween(item, 0.1, { BackgroundTransparency = 1 })
+                if not selected[opt] then
+                    tween(item, 0.1, { BackgroundTransparency = 1 })
+                end
             end)
             item.MouseButton1Click:Connect(function() api:Toggle(opt) end)
-            items[opt] = { Box = box, BoxStroke = boxStroke, Check = check, Label = lbl }
+            items[opt] = { Btn = item, Label = lbl }
         end
         render()
     end
@@ -2072,8 +2116,40 @@ function Section:AddKeybind(opts)
 end
 
 ----------------------------------------------------------------------
--- COLORPICKER (HSV + Alpha) — robust input via hit areas
+-- COLORPICKER (Hue + Lightness · 2 strips · draggable popup)
 ----------------------------------------------------------------------
+-- Convert HSL to RGB (saturation = 1 always for our 2-strip design)
+local function hslToColor(h, s, l)
+    local function f(n)
+        local k = (n + h * 12) % 12
+        local a = s * math.min(l, 1 - l)
+        return l - a * math.max(-1, math.min(k - 3, 9 - k, 1))
+    end
+    return Color3.new(f(0), f(8), f(4))
+end
+-- Convert Color3 -> (h, l) given saturation = 1
+local function colorToHL(c)
+    local mx = math.max(c.R, c.G, c.B)
+    local mn = math.min(c.R, c.G, c.B)
+    local l = (mx + mn) / 2
+    local h
+    if mx == mn then
+        h = 0
+    else
+        local d = mx - mn
+        if mx == c.R then
+            h = ((c.G - c.B) / d) % 6
+        elseif mx == c.G then
+            h = (c.B - c.R) / d + 2
+        else
+            h = (c.R - c.G) / d + 4
+        end
+        h = h / 6
+        if h < 0 then h = h + 1 end
+    end
+    return h, l
+end
+
 function Section:AddColorpicker(opts)
     opts = opts or {}
     local text     = tostring(opts.Text or "Color")
@@ -2114,14 +2190,23 @@ function Section:AddColorpicker(opts)
     local swStroke = stroke(swatch, Theme.BorderHi, 1)
 
     -- Popup
-    local popupH = hasAlpha and 252 or 230
+    local POP_W   = 240
+    local headerH = 30
+    local stripH  = 16
+    local previewH = 32
+    local hexH    = 28
+    local gap     = 10
+    local popupH  = 12 + headerH + 6 + previewH + gap + stripH + gap + stripH
+                    + (hasAlpha and (gap + stripH) or 0) + gap + hexH + 12
+
     local popup = new("Frame", {
         Parent           = getScreenGui(),
         Visible          = false,
-        Size             = UDim2.fromOffset(232, popupH),
+        Size             = UDim2.fromOffset(POP_W, popupH),
         BackgroundColor3 = Theme.Bg,
         BorderSizePixel  = 0,
         ZIndex           = 1500,
+        Active           = true,
     })
     corner(popup, R_LG)
     stroke(popup, Theme.BorderHi, 1)
@@ -2140,81 +2225,86 @@ function Section:AddColorpicker(opts)
         SliceCenter            = Rect.new(12, 12, 244, 244),
     })
 
-    -- SV plane
-    local sv = new("Frame", {
-        Parent           = popup,
-        Size             = UDim2.new(1, 0, 0, 138),
-        BackgroundColor3 = Color3.fromRGB(255, 0, 0),
-        BorderSizePixel  = 0,
-        ZIndex           = 1501,
-        Active           = true,
-        ClipsDescendants = true,
-    })
-    corner(sv, R_SM)
-
-    local satOverlay = new("Frame", {
-        Parent           = sv,
-        Size             = UDim2.fromScale(1, 1),
-        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
-        BorderSizePixel  = 0,
-        ZIndex           = 1502,
-    })
-    new("UIGradient", {
-        Parent       = satOverlay,
-        Transparency = NumberSequence.new({
-            NumberSequenceKeypoint.new(0, 0),
-            NumberSequenceKeypoint.new(1, 1),
-        }),
-    })
-    local valOverlay = new("Frame", {
-        Parent           = sv,
-        Size             = UDim2.fromScale(1, 1),
-        BackgroundColor3 = Color3.fromRGB(0, 0, 0),
-        BorderSizePixel  = 0,
-        ZIndex           = 1503,
-    })
-    new("UIGradient", {
-        Parent       = valOverlay,
-        Rotation     = 90,
-        Transparency = NumberSequence.new({
-            NumberSequenceKeypoint.new(0, 1),
-            NumberSequenceKeypoint.new(1, 0),
-        }),
-    })
-
-    local svCursor = new("Frame", {
-        Parent                 = sv,
-        AnchorPoint            = Vector2.new(0.5, 0.5),
-        Size                   = UDim2.fromOffset(12, 12),
+    -- HEADER (drag handle)
+    local header = new("Frame", {
+        Parent                 = popup,
+        Size                   = UDim2.new(1, 0, 0, headerH),
         BackgroundTransparency = 1,
-        BorderSizePixel        = 0,
-        ZIndex                 = 1504,
+        ZIndex                 = 1501,
+        Active                 = true,
     })
-    corner(svCursor, R_PILL)
-    local svRing = stroke(svCursor, Color3.fromRGB(255, 255, 255), 2)
-
-    local svHit = new("TextButton", {
-        Parent                 = sv,
-        Size                   = UDim2.fromScale(1, 1),
+    new("TextLabel", {
+        Parent                 = header,
+        BackgroundTransparency = 1,
+        Position               = UDim2.fromOffset(0, 0),
+        Size                   = UDim2.new(1, -32, 1, 0),
+        Font                   = FONT_SB,
+        TextSize               = TEXT_MD,
+        TextColor3             = Theme.Text,
+        TextXAlignment         = Enum.TextXAlignment.Left,
+        Text                   = text,
+        ZIndex                 = 1502,
+    })
+    -- close X (drawn cross)
+    local closeBtn = new("TextButton", {
+        Parent                 = header,
+        AnchorPoint            = Vector2.new(1, 0.5),
+        Position               = UDim2.new(1, 0, 0.5, 0),
+        Size                   = UDim2.fromOffset(22, 22),
+        BackgroundColor3       = Theme.Bg2,
         BackgroundTransparency = 1,
         BorderSizePixel        = 0,
         Text                   = "",
         AutoButtonColor        = false,
-        ZIndex                 = 1505,
+        ZIndex                 = 1502,
     })
+    corner(closeBtn, R_PILL)
+    local crossHolder = new("Frame", {
+        Parent                 = closeBtn,
+        AnchorPoint            = Vector2.new(0.5, 0.5),
+        Position               = UDim2.fromScale(0.5, 0.5),
+        Size                   = UDim2.fromOffset(10, 10),
+        BackgroundTransparency = 1,
+        ZIndex                 = 1503,
+    })
+    local crossIcon = drawCross(crossHolder, 10, Theme.SubText)
+    closeBtn.MouseEnter:Connect(function()
+        tween(closeBtn, 0.12, { BackgroundTransparency = 0, BackgroundColor3 = Theme.Bg3 })
+        crossIcon:SetColor(Theme.Text)
+    end)
+    closeBtn.MouseLeave:Connect(function()
+        tween(closeBtn, 0.12, { BackgroundTransparency = 1 })
+        crossIcon:SetColor(Theme.SubText)
+    end)
 
-    -- Hue bar
-    local hue = new("Frame", {
+    local nextY = headerH + 6
+
+    -- PREVIEW row (current color · big swatch)
+    local preview = new("Frame", {
+        Parent           = popup,
+        Position         = UDim2.fromOffset(0, nextY),
+        Size             = UDim2.new(1, 0, 0, previewH),
+        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+        BorderSizePixel  = 0,
+        ZIndex           = 1501,
+    })
+    corner(preview, R_MD)
+    stroke(preview, Theme.BorderHi, 1)
+    nextY = nextY + previewH + gap
+
+    -- HUE strip
+    local hueBar = new("Frame", {
         Parent          = popup,
-        Position        = UDim2.fromOffset(0, 146),
-        Size            = UDim2.new(1, 0, 0, 14),
+        Position        = UDim2.fromOffset(0, nextY),
+        Size            = UDim2.new(1, 0, 0, stripH),
         BorderSizePixel = 0,
         ZIndex          = 1501,
         Active          = true,
     })
-    corner(hue, R_PILL)
+    corner(hueBar, R_PILL)
+    hueBar:SetAttribute("ObsPreserve", true)
     new("UIGradient", {
-        Parent = hue,
+        Parent = hueBar,
         Color  = ColorSequence.new({
             ColorSequenceKeypoint.new(0,    Color3.fromRGB(255, 0, 0)),
             ColorSequenceKeypoint.new(1/6,  Color3.fromRGB(255, 255, 0)),
@@ -2226,30 +2316,62 @@ function Section:AddColorpicker(opts)
         }),
     })
     local hueCursor = new("Frame", {
-        Parent           = hue,
+        Parent           = hueBar,
         AnchorPoint      = Vector2.new(0.5, 0.5),
-        Size             = UDim2.fromOffset(4, 18),
+        Size             = UDim2.fromOffset(4, stripH + 6),
         Position         = UDim2.new(0, 0, 0.5, 0),
         BackgroundColor3 = Color3.fromRGB(255, 255, 255),
         BorderSizePixel  = 0,
         ZIndex           = 1503,
     })
     corner(hueCursor, R_SM)
-    stroke(hueCursor, Color3.fromRGB(0, 0, 0), 1)
+    local hueCStroke = stroke(hueCursor, Color3.fromRGB(0, 0, 0), 1)
+    hueCursor:SetAttribute("ObsPreserve", true)
+    hueCStroke:SetAttribute("ObsPreserve", true)
+    nextY = nextY + stripH + gap
 
-    local nextY = 146 + 14 + 10
+    -- LIGHTNESS strip (black → currentHue → white)
+    local lightBar = new("Frame", {
+        Parent           = popup,
+        Position         = UDim2.fromOffset(0, nextY),
+        Size             = UDim2.new(1, 0, 0, stripH),
+        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+        BorderSizePixel  = 0,
+        ZIndex           = 1501,
+        Active           = true,
+    })
+    corner(lightBar, R_PILL)
+    lightBar:SetAttribute("ObsPreserve", true)
+    local lightGrad = new("UIGradient", { Parent = lightBar })
+    local lightCursor = new("Frame", {
+        Parent           = lightBar,
+        AnchorPoint      = Vector2.new(0.5, 0.5),
+        Size             = UDim2.fromOffset(4, stripH + 6),
+        Position         = UDim2.new(0.5, 0, 0.5, 0),
+        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+        BorderSizePixel  = 0,
+        ZIndex           = 1503,
+    })
+    corner(lightCursor, R_SM)
+    local lightCStroke = stroke(lightCursor, Color3.fromRGB(0, 0, 0), 1)
+    lightCursor:SetAttribute("ObsPreserve", true)
+    lightCStroke:SetAttribute("ObsPreserve", true)
+    nextY = nextY + stripH + gap
+
+    -- ALPHA strip (optional)
     local alphaBar, alphaCursor
     if hasAlpha then
         alphaBar = new("Frame", {
             Parent           = popup,
             Position         = UDim2.fromOffset(0, nextY),
-            Size             = UDim2.new(1, 0, 0, 14),
+            Size             = UDim2.new(1, 0, 0, stripH),
             BackgroundColor3 = Color3.fromRGB(255, 255, 255),
             BorderSizePixel  = 0,
             ZIndex           = 1501,
             Active           = true,
         })
         corner(alphaBar, R_PILL)
+        alphaBar:SetAttribute("ObsPreserve", true)
         new("UIGradient", {
             Parent = alphaBar,
             Color  = ColorSequence.new(Color3.fromRGB(0,0,0), Color3.fromRGB(255,255,255)),
@@ -2257,22 +2379,24 @@ function Section:AddColorpicker(opts)
         alphaCursor = new("Frame", {
             Parent           = alphaBar,
             AnchorPoint      = Vector2.new(0.5, 0.5),
-            Size             = UDim2.fromOffset(4, 18),
+            Size             = UDim2.fromOffset(4, stripH + 6),
             Position         = UDim2.new(1, 0, 0.5, 0),
             BackgroundColor3 = Color3.fromRGB(255, 255, 255),
             BorderSizePixel  = 0,
             ZIndex           = 1503,
         })
         corner(alphaCursor, R_SM)
-        stroke(alphaCursor, Color3.fromRGB(0, 0, 0), 1)
-        nextY = nextY + 14 + 10
+        local alphaCStroke = stroke(alphaCursor, Color3.fromRGB(0, 0, 0), 1)
+        alphaCursor:SetAttribute("ObsPreserve", true)
+        alphaCStroke:SetAttribute("ObsPreserve", true)
+        nextY = nextY + stripH + gap
     end
 
-    -- Hex input
+    -- HEX input
     local hex = new("TextBox", {
         Parent                 = popup,
         Position               = UDim2.fromOffset(0, nextY),
-        Size                   = UDim2.new(1, 0, 0, 28),
+        Size                   = UDim2.new(1, 0, 0, hexH),
         BackgroundColor3       = Theme.Bg2,
         BorderSizePixel        = 0,
         Font                   = FONT_M,
@@ -2287,29 +2411,41 @@ function Section:AddColorpicker(opts)
     corner(hex, R_MD)
     local hexStroke = stroke(hex, Theme.Border, 1)
 
-    -- State
-    local h, s2, v = Color3.toHSV(default)
+    -- Make popup draggable via header
+    makeDraggable(popup, header)
+
+    ----------------------------------------------------------------
+    -- STATE
+    ----------------------------------------------------------------
+    local h, l = colorToHL(default)
     local alpha = 1
     local api = {}
 
-    local function color() return Color3.fromHSV(h, s2, v) end
+    local function color() return hslToColor(h, 1, l) end
     local function rgbToHex(c)
         return string.format("#%02X%02X%02X",
             math.floor(c.R*255+0.5), math.floor(c.G*255+0.5), math.floor(c.B*255+0.5))
     end
+
     local function render()
         local c = color()
-        sv.BackgroundColor3     = Color3.fromHSV(h, 1, 1)
         swatch.BackgroundColor3 = c
-        svCursor.Position       = UDim2.fromScale(s2, 1 - v)
-        svRing.Color = (v > 0.55 and s2 < 0.55) and Color3.fromRGB(0,0,0) or Color3.fromRGB(255,255,255)
-        hueCursor.Position = UDim2.new(h, 0, 0.5, 0)
+        preview.BackgroundColor3 = c
+        -- update lightness gradient: black → pure hue → white
+        local pureHue = hslToColor(h, 1, 0.5)
+        lightGrad.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0,   Color3.fromRGB(0, 0, 0)),
+            ColorSequenceKeypoint.new(0.5, pureHue),
+            ColorSequenceKeypoint.new(1,   Color3.fromRGB(255, 255, 255)),
+        })
+        hueCursor.Position    = UDim2.new(h, 0, 0.5, 0)
+        lightCursor.Position  = UDim2.new(l, 0, 0.5, 0)
         if alphaCursor then alphaCursor.Position = UDim2.new(alpha, 0, 0.5, 0) end
         if not hex:IsFocused() then hex.Text = rgbToHex(c) end
     end
 
     function api:Set(c, a, silent)
-        if c then h, s2, v = Color3.toHSV(c) end
+        if c then h, l = colorToHL(c) end
         if a ~= nil then alpha = clamp(a, 0, 1) end
         render()
         if flag then Library:SetFlag(flag, color()) end
@@ -2352,95 +2488,45 @@ function Section:AddColorpicker(opts)
     swatch.MouseButton1Click:Connect(function()
         if popup.Visible then api:Close() else api:Open() end
     end)
+    closeBtn.MouseButton1Click:Connect(function() api:Close() end)
 
-    -- SV interaction (via hit area)
-    local svDrag = false
-    local function updateSV(input)
-        local p  = sv.AbsolutePosition
-        local sz = sv.AbsoluteSize
-        local x = clamp(input.Position.X - p.X, 0, sz.X)
-        local y = clamp(input.Position.Y - p.Y, 0, sz.Y)
-        s2 = (sz.X > 0) and x / sz.X or 0
-        v  = 1 - ((sz.Y > 0) and y / sz.Y or 0)
-        api:Set(nil)
-    end
-    svHit.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1
-        or input.UserInputType == Enum.UserInputType.Touch then
-            svDrag = true
-            updateSV(input)
-        end
-    end)
-    register(UIS.InputChanged:Connect(function(input)
-        if svDrag and (input.UserInputType == Enum.UserInputType.MouseMovement
-        or input.UserInputType == Enum.UserInputType.Touch) then
-            updateSV(input)
-        end
-    end))
-    register(UIS.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1
-        or input.UserInputType == Enum.UserInputType.Touch then
-            svDrag = false
-        end
-    end))
-
-    -- Hue
-    local hueDrag = false
-    local function updateHue(input)
-        local p  = hue.AbsolutePosition
-        local sz = hue.AbsoluteSize
-        local x = clamp(input.Position.X - p.X, 0, sz.X)
-        h = (sz.X > 0) and x / sz.X or 0
-        api:Set(nil)
-    end
-    hue.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1
-        or input.UserInputType == Enum.UserInputType.Touch then
-            hueDrag = true
-            updateHue(input)
-        end
-    end)
-    register(UIS.InputChanged:Connect(function(input)
-        if hueDrag and (input.UserInputType == Enum.UserInputType.MouseMovement
-        or input.UserInputType == Enum.UserInputType.Touch) then
-            updateHue(input)
-        end
-    end))
-    register(UIS.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1
-        or input.UserInputType == Enum.UserInputType.Touch then
-            hueDrag = false
-        end
-    end))
-
-    if hasAlpha then
-        local aDrag = false
-        local function updateA(input)
-            local p  = alphaBar.AbsolutePosition
-            local sz = alphaBar.AbsoluteSize
+    ----------------------------------------------------------------
+    -- STRIP DRAG HELPERS
+    ----------------------------------------------------------------
+    local function makeStripDrag(strip, onPct)
+        local dragging = false
+        local function update(input)
+            local p  = strip.AbsolutePosition
+            local sz = strip.AbsoluteSize
             local x = clamp(input.Position.X - p.X, 0, sz.X)
-            alpha = (sz.X > 0) and x / sz.X or 0
-            api:Set(nil, alpha)
+            local pct = (sz.X > 0) and x / sz.X or 0
+            onPct(pct)
         end
-        alphaBar.InputBegan:Connect(function(input)
+        strip.InputBegan:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1
             or input.UserInputType == Enum.UserInputType.Touch then
-                aDrag = true
-                updateA(input)
+                dragging = true
+                update(input)
             end
         end)
         register(UIS.InputChanged:Connect(function(input)
-            if aDrag and (input.UserInputType == Enum.UserInputType.MouseMovement
+            if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
             or input.UserInputType == Enum.UserInputType.Touch) then
-                updateA(input)
+                update(input)
             end
         end))
         register(UIS.InputEnded:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1
             or input.UserInputType == Enum.UserInputType.Touch then
-                aDrag = false
+                dragging = false
             end
         end))
+    end
+
+    makeStripDrag(hueBar,   function(pct) h = pct;        api:Set(nil) end)
+    makeStripDrag(lightBar, function(pct) l = pct;        api:Set(nil) end)
+    if hasAlpha then
+        makeStripDrag(alphaBar, function(pct) alpha = pct; api:Set(nil, alpha) end)
     end
 
     -- Hex
@@ -2467,8 +2553,12 @@ function Section:AddColorpicker(opts)
 end
 
 ----------------------------------------------------------------------
--- NOTIFICATIONS
+-- NOTIFICATIONS (compact + smart overflow close)
 ----------------------------------------------------------------------
+local NOTIFY_W   = 240
+local NOTIFY_MAX = 4
+Library._notifications = {}
+
 local function getNotifyHolder()
     local sg = getScreenGui()
     if Library.NotifyHolder and Library.NotifyHolder.Parent then return Library.NotifyHolder end
@@ -2476,13 +2566,13 @@ local function getNotifyHolder()
         Parent                 = sg,
         Name                   = "Notifications",
         AnchorPoint            = Vector2.new(1, 0),
-        Position               = UDim2.new(1, -16, 0, 16),
-        Size                   = UDim2.fromOffset(300, 0),
+        Position               = UDim2.new(1, -14, 0, 14),
+        Size                   = UDim2.fromOffset(NOTIFY_W, 0),
         AutomaticSize          = Enum.AutomaticSize.Y,
         BackgroundTransparency = 1,
         ZIndex                 = 5000,
     })
-    listLayout(holder, Enum.FillDirection.Vertical, 8,
+    listLayout(holder, Enum.FillDirection.Vertical, 6,
         Enum.HorizontalAlignment.Right, Enum.VerticalAlignment.Top)
     Library.NotifyHolder = holder
     return holder
@@ -2492,7 +2582,7 @@ function Library:Notify(opts)
     opts = opts or {}
     local title    = tostring(opts.Title or "Notification")
     local text     = tostring(opts.Text or "")
-    local duration = tonumber(opts.Duration) or 4
+    local duration = tonumber(opts.Duration) or 3.5
 
     local holder = getNotifyHolder()
 
@@ -2505,18 +2595,17 @@ function Library:Notify(opts)
         ZIndex           = 5001,
         ClipsDescendants = true,
     })
-    corner(card, R_LG)
+    corner(card, R_MD)
     stroke(card, Theme.Border, 1)
-    -- soft drop shadow
     new("ImageLabel", {
         Parent                 = card,
         ZIndex                 = 5000,
-        Size                   = UDim2.new(1, 40, 1, 40),
-        Position               = UDim2.fromOffset(-20, -14),
+        Size                   = UDim2.new(1, 30, 1, 30),
+        Position               = UDim2.fromOffset(-15, -10),
         BackgroundTransparency = 1,
         Image                  = "rbxasset://textures/ui/Controls/DropShadow.png",
         ImageColor3            = Theme.Shadow,
-        ImageTransparency      = 0.86,
+        ImageTransparency      = 0.88,
         ScaleType              = Enum.ScaleType.Slice,
         SliceCenter            = Rect.new(12, 12, 244, 244),
     })
@@ -2529,34 +2618,36 @@ function Library:Notify(opts)
         BackgroundTransparency = 1,
         ZIndex                 = 5002,
     })
-    pad(content, 14, 12, 14, 14)
-    listLayout(content, Enum.FillDirection.Vertical, 4)
+    pad(content, 10, 8, 10, 10)
+    listLayout(content, Enum.FillDirection.Vertical, 2)
 
     new("TextLabel", {
         Parent                 = content,
-        Size                   = UDim2.new(1, 0, 0, 16),
+        Size                   = UDim2.new(1, 0, 0, 14),
         BackgroundTransparency = 1,
         Font                   = FONT_SB,
-        TextSize               = TEXT_MD,
+        TextSize               = TEXT_SM,
         TextColor3             = Theme.Text,
         TextXAlignment         = Enum.TextXAlignment.Left,
         Text                   = title,
         ZIndex                 = 5002,
     })
-    new("TextLabel", {
-        Parent                 = content,
-        Size                   = UDim2.new(1, 0, 0, 0),
-        AutomaticSize          = Enum.AutomaticSize.Y,
-        BackgroundTransparency = 1,
-        Font                   = FONT,
-        TextSize               = TEXT_SM,
-        TextColor3             = Theme.SubText,
-        TextXAlignment         = Enum.TextXAlignment.Left,
-        TextYAlignment         = Enum.TextYAlignment.Top,
-        TextWrapped            = true,
-        Text                   = text,
-        ZIndex                 = 5002,
-    })
+    if text ~= "" then
+        new("TextLabel", {
+            Parent                 = content,
+            Size                   = UDim2.new(1, 0, 0, 0),
+            AutomaticSize          = Enum.AutomaticSize.Y,
+            BackgroundTransparency = 1,
+            Font                   = FONT,
+            TextSize               = TEXT_XS,
+            TextColor3             = Theme.SubText,
+            TextXAlignment         = Enum.TextXAlignment.Left,
+            TextYAlignment         = Enum.TextYAlignment.Top,
+            TextWrapped            = true,
+            Text                   = text,
+            ZIndex                 = 5002,
+        })
+    end
 
     -- Progress bar (bottom)
     local bar = new("Frame", {
@@ -2569,7 +2660,20 @@ function Library:Notify(opts)
         ZIndex           = 5002,
     })
 
-    -- Animate
+    local function tweenTrans(t, dur)
+        tween(card, dur, { BackgroundTransparency = t })
+        for _, d in ipairs(card:GetDescendants()) do
+            if d:IsA("TextLabel") then
+                tween(d, dur, { TextTransparency = t })
+            elseif d:IsA("UIStroke") then
+                tween(d, dur, { Transparency = t })
+            elseif d:IsA("Frame") and d.Name ~= "Content" then
+                tween(d, dur, { BackgroundTransparency = t })
+            elseif d:IsA("ImageLabel") then
+                tween(d, dur, { ImageTransparency = math.min(1, 0.88 + t) })
+            end
+        end
+    end
     local function setTrans(t)
         card.BackgroundTransparency = t
         for _, d in ipairs(card:GetDescendants()) do
@@ -2582,29 +2686,33 @@ function Library:Notify(opts)
             end
         end
     end
-    local function tweenTrans(t, dur)
-        tween(card, dur, { BackgroundTransparency = t })
-        for _, d in ipairs(card:GetDescendants()) do
-            if d:IsA("TextLabel") then
-                tween(d, dur, { TextTransparency = t })
-            elseif d:IsA("UIStroke") then
-                tween(d, dur, { Transparency = t })
-            elseif d:IsA("Frame") and d.Name ~= "Content" then
-                tween(d, dur, { BackgroundTransparency = t })
-            end
+
+    local entry = { Card = card, Closed = false }
+    function entry:Close(fast)
+        if self.Closed then return end
+        self.Closed = true
+        local dur = fast and 0.12 or 0.2
+        tweenTrans(1, dur)
+        task.delay(dur + 0.02, function()
+            if card and card.Parent then card:Destroy() end
+        end)
+        for i, e in ipairs(Library._notifications) do
+            if e == self then table.remove(Library._notifications, i) break end
         end
     end
 
     setTrans(1)
-    tweenTrans(0, 0.22)
+    tweenTrans(0, 0.18)
     tween(bar, duration, { Size = UDim2.new(0, 0, 0, 2) }, Enum.EasingStyle.Linear)
 
-    task.delay(duration, function()
-        tweenTrans(1, 0.22)
-        task.wait(0.24)
-        card:Destroy()
-    end)
+    table.insert(Library._notifications, entry)
+    -- Smart overflow: close oldest fast if too many
+    while #Library._notifications > NOTIFY_MAX do
+        local oldest = Library._notifications[1]
+        if oldest then oldest:Close(true) else break end
+    end
 
+    task.delay(duration, function() entry:Close(false) end)
     return card
 end
 
