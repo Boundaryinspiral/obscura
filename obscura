@@ -1,12 +1,11 @@
 --[[
-    OBSCURA UI LIBRARY  v3.0  ·  Minimal Material × iOS
-    --------------------------------------------------------------
-    · Чёрно-белая палитра, light theme, очень мягкие скругления
-    · Bottom tab bar (как iOS / Material BottomNav)
-    · Один скроллящийся столбец контента, без боксов вокруг секций
-    · Все иконки (chevron, check, close, minus, hamburger) рисуются
-      повёрнутыми Frame'ами — никаких юникод-«эмодзи»
-    · PC + Mobile (touch + draggable)
+    OBSCURA UI LIBRARY  v3.1.1  ·  Minimal Material × iOS
+    Исправления:
+      • TopLip убран — таббар больше не закрывает скруглённые углы окна
+      • SetTheme переписан: snapshot хранится отдельно (Library.CurrentPalette),
+        remap сравнивает с ним, а не с live Theme → переключение тем не ломается
+      • Кнопка filled: hover цвет берётся из темы, не хардкодится
+      • Уведомления overflow: slide-up + fade анимация вместо резкого удаления
 ]]
 
 local Library              = {}
@@ -16,7 +15,7 @@ Library.FlagCallbacks      = {}
 Library.Connections        = {}
 Library.Windows            = {}
 Library.Open               = true
-Library.Version            = "3.1.0"
+Library.Version            = "3.1.1"
 Library.Name               = "Obscura"
 Library._activeDropdown    = nil
 Library._activeColorpicker = nil
@@ -31,12 +30,8 @@ local HttpService = game:GetService("HttpService")
 local LP          = Players.LocalPlayer
 
 ----------------------------------------------------------------------
--- THEMES (Material light × iOS, plus Dark variant)
+-- THEMES
 ----------------------------------------------------------------------
--- IMPORTANT: every value within a single theme MUST be unique. If two keys
--- share a Color3, the live remap can't tell them apart and theme switching
--- becomes ambiguous. AccentText/Shadow are intentionally offset by 1-2 RGB
--- units so they don't collide with Bg/Accent (visually identical).
 local ThemeLight = {
     Bg          = Color3.fromRGB(255, 255, 255),
     Bg2         = Color3.fromRGB(247, 247, 249),
@@ -48,14 +43,16 @@ local ThemeLight = {
     SubText     = Color3.fromRGB(110, 110, 115),
     DimText     = Color3.fromRGB(174, 174, 178),
     Accent      = Color3.fromRGB(0, 0, 0),
-    AccentText  = Color3.fromRGB(250, 250, 250),  -- unique vs Bg
+    AccentText  = Color3.fromRGB(250, 250, 250),
     Track       = Color3.fromRGB(229, 229, 234),
-    Shadow      = Color3.fromRGB(8, 8, 8),         -- unique vs Accent
+    Shadow      = Color3.fromRGB(8, 8, 8),
+    -- hover для filled-кнопок (чуть светлее/темнее Accent)
+    AccentHover = Color3.fromRGB(40, 40, 40),
 }
 local ThemeDark = {
-    Bg          = Color3.fromRGB(16, 16, 19),     -- deep neutral
-    Bg2         = Color3.fromRGB(24, 24, 27),     -- card / input
-    Bg3         = Color3.fromRGB(34, 34, 38),     -- dropdown / pressed
+    Bg          = Color3.fromRGB(16, 16, 19),
+    Bg2         = Color3.fromRGB(24, 24, 27),
+    Bg3         = Color3.fromRGB(34, 34, 38),
     Hover       = Color3.fromRGB(44, 44, 48),
     Border      = Color3.fromRGB(36, 36, 40),
     BorderHi    = Color3.fromRGB(62, 62, 68),
@@ -63,38 +60,47 @@ local ThemeDark = {
     SubText     = Color3.fromRGB(160, 160, 168),
     DimText     = Color3.fromRGB(100, 100, 108),
     Accent      = Color3.fromRGB(255, 255, 255),
-    AccentText  = Color3.fromRGB(8, 8, 10),        -- unique vs Bg/Shadow
-    Track       = Color3.fromRGB(40, 40, 44),      -- unique vs Hover/Border
+    AccentText  = Color3.fromRGB(8, 8, 10),
+    Track       = Color3.fromRGB(40, 40, 44),
     Shadow      = Color3.fromRGB(0, 0, 0),
+    -- hover для filled-кнопок в тёмной теме (чуть темнее белого)
+    AccentHover = Color3.fromRGB(210, 210, 210),
 }
 
 local Theme = {}
 for k, v in pairs(ThemeLight) do Theme[k] = v end
-Library.Theme       = Theme
-Library.Themes      = { light = ThemeLight, dark = ThemeDark }
+Library.Theme        = Theme
+Library.Themes       = { light = ThemeLight, dark = ThemeDark }
 Library.CurrentTheme = "light"
+-- ИСПРАВЛЕНИЕ: храним активный снимок палитры отдельно от live Theme
+Library.CurrentPalette = {}
+for k, v in pairs(ThemeLight) do Library.CurrentPalette[k] = v end
 
--- Snap two Color3 if their components are within tolerance
 local function colorEq(a, b)
     if not a or not b then return false end
-    return math.abs(a.R - b.R) < 0.001
-       and math.abs(a.G - b.G) < 0.001
-       and math.abs(a.B - b.B) < 0.001
+    return math.abs(a.R - b.R) < 0.002
+       and math.abs(a.G - b.G) < 0.002
+       and math.abs(a.B - b.B) < 0.002
 end
 
 function Library:SetTheme(name)
     local target = self.Themes[name] or self.Themes.light
     if not target then return end
-    -- snapshot old palette
+
+    -- snapshot ПРЕДЫДУЩЕЙ палитры (до мутации)
     local old = {}
-    for k, v in pairs(Theme) do old[k] = v end
-    -- mutate Theme in place
+    for k, v in pairs(self.CurrentPalette) do old[k] = v end
+
+    -- мутируем Theme и сохраняем новый снимок
     for k, v in pairs(target) do Theme[k] = v end
     self.CurrentTheme = name
+    self.CurrentPalette = {}
+    for k, v in pairs(target) do self.CurrentPalette[k] = v end
 
     local sg = self.ScreenGui
     if not sg then return end
 
+    -- remap: по старой палитре → ключ → новая палитра
     local function remap(c)
         if not c then return nil end
         for k, oldC in pairs(old) do
@@ -107,32 +113,32 @@ function Library:SetTheme(name)
     table.insert(instances, sg)
     for _, inst in ipairs(instances) do
         if inst:GetAttribute("ObsPreserve") then
-            -- skip explicitly preserved elements (e.g. picker cursors)
+            -- пропускаем пикер и т.п.
         else
-        local cls = inst.ClassName
-        if cls == "Frame" or cls == "TextButton" or cls == "TextBox"
-        or cls == "ImageButton" or cls == "ImageLabel" or cls == "ScrollingFrame" then
-            local nc = remap(inst.BackgroundColor3)
-            if nc then inst.BackgroundColor3 = nc end
-        end
-        if cls == "ScrollingFrame" then
-            local sc = remap(inst.ScrollBarImageColor3)
-            if sc then inst.ScrollBarImageColor3 = sc end
-        end
-        if cls == "TextLabel" or cls == "TextButton" or cls == "TextBox" then
-            local nt = remap(inst.TextColor3)
-            if nt then inst.TextColor3 = nt end
-            local pt = remap(inst.PlaceholderColor3)
-            if pt then inst.PlaceholderColor3 = pt end
-        end
-        if cls == "ImageLabel" or cls == "ImageButton" then
-            local ic = remap(inst.ImageColor3)
-            if ic then inst.ImageColor3 = ic end
-        end
-        if cls == "UIStroke" then
-            local sc = remap(inst.Color)
-            if sc then inst.Color = sc end
-        end
+            local cls = inst.ClassName
+            if cls == "Frame" or cls == "TextButton" or cls == "TextBox"
+            or cls == "ImageButton" or cls == "ImageLabel" or cls == "ScrollingFrame" then
+                local nc = remap(inst.BackgroundColor3)
+                if nc then inst.BackgroundColor3 = nc end
+            end
+            if cls == "ScrollingFrame" then
+                local sc = remap(inst.ScrollBarImageColor3)
+                if sc then inst.ScrollBarImageColor3 = sc end
+            end
+            if cls == "TextLabel" or cls == "TextButton" or cls == "TextBox" then
+                local nt = remap(inst.TextColor3)
+                if nt then inst.TextColor3 = nt end
+                local pt = remap(inst.PlaceholderColor3)
+                if pt then inst.PlaceholderColor3 = pt end
+            end
+            if cls == "ImageLabel" or cls == "ImageButton" then
+                local ic = remap(inst.ImageColor3)
+                if ic then inst.ImageColor3 = ic end
+            end
+            if cls == "UIStroke" then
+                local sc = remap(inst.Color)
+                if sc then inst.Color = sc end
+            end
         end
     end
 end
@@ -145,11 +151,10 @@ local FONT, FONT_M, FONT_SB, FONT_B =
 
 local TEXT_XS, TEXT_SM, TEXT_MD, TEXT_LG = 11, 12, 13, 15
 
--- Corner radii
 local R_SM   = UDim.new(0, 6)
 local R_MD   = UDim.new(0, 10)
 local R_LG   = UDim.new(0, 14)
-local R_XL   = UDim.new(0, 16)    -- main window
+local R_XL   = UDim.new(0, 16)
 local R_PILL = UDim.new(1, 0)
 
 ----------------------------------------------------------------------
@@ -222,9 +227,8 @@ local function isInside(f, p)
 end
 
 ----------------------------------------------------------------------
--- DRAWN ICONS (no unicode emoji)
+-- DRAWN ICONS
 ----------------------------------------------------------------------
--- Chevron pointing down: \/
 local function drawChevron(parent, w, color)
     local h = math.floor(w * 0.55)
     local cont = new("Frame", {
@@ -270,7 +274,6 @@ local function drawChevron(parent, w, color)
     return api
 end
 
--- Checkmark (✓) drawn from two rotated bars
 local function drawCheck(parent, size, color)
     local cont = new("Frame", {
         Parent                 = parent,
@@ -308,7 +311,6 @@ local function drawCheck(parent, size, color)
     return api
 end
 
--- Cross (×) drawn from two rotated bars
 local function drawCross(parent, size, color)
     local cont = new("Frame", {
         Parent                 = parent,
@@ -346,7 +348,6 @@ local function drawCross(parent, size, color)
     return api
 end
 
--- Minus / horizontal line
 local function drawMinus(parent, size, color)
     local cont = new("Frame", {
         Parent                 = parent,
@@ -365,7 +366,6 @@ local function drawMinus(parent, size, color)
     return { Container = cont, SetColor = function(_, c) bar.BackgroundColor3 = c end }
 end
 
--- Hamburger (3 lines)
 local function drawHamburger(parent, size, color)
     local cont = new("Frame", {
         Parent                 = parent,
@@ -426,7 +426,7 @@ local function makeDraggable(target, handle, onDragStart)
 end
 
 ----------------------------------------------------------------------
--- SCREEN GUI (executor-aware)
+-- SCREEN GUI
 ----------------------------------------------------------------------
 local function getScreenGui()
     if Library.ScreenGui and Library.ScreenGui.Parent then return Library.ScreenGui end
@@ -527,7 +527,7 @@ function Library:Destroy()
 end
 
 ----------------------------------------------------------------------
--- MOBILE TOGGLE BUTTON (drawn hamburger)
+-- MOBILE TOGGLE BUTTON
 ----------------------------------------------------------------------
 local function makeMobileButton()
     if Library.MobileButton then return end
@@ -545,8 +545,7 @@ local function makeMobileButton()
         Active           = true,
     })
     corner(btn, R_PILL)
-    -- subtle shadow
-    local sh = new("ImageLabel", {
+    new("ImageLabel", {
         Parent                 = btn,
         ZIndex                 = 9999,
         Size                   = UDim2.new(1, 24, 1, 24),
@@ -574,7 +573,7 @@ local function makeMobileButton()
 end
 
 ----------------------------------------------------------------------
--- HEARTBEAT (popup follow)
+-- HEARTBEAT
 ----------------------------------------------------------------------
 register(RS.Heartbeat:Connect(function()
     local d = Library._activeDropdown
@@ -635,7 +634,6 @@ function Library:CreateWindow(opts)
 
     local sg = getScreenGui()
 
-    -- Drop shadow
     local shadow = new("ImageLabel", {
         Parent                 = sg,
         AnchorPoint            = Vector2.new(0.5, 0.5),
@@ -650,7 +648,6 @@ function Library:CreateWindow(opts)
         ZIndex                 = 1,
     })
 
-    -- Root window
     local root = new("Frame", {
         Parent           = sg,
         Name             = "Window",
@@ -659,14 +656,13 @@ function Library:CreateWindow(opts)
         Size             = size,
         BackgroundColor3 = Theme.Bg,
         BorderSizePixel  = 0,
-        ClipsDescendants = true,
+        ClipsDescendants = true,  -- срезает и углы таббара!
         Active           = true,
         ZIndex           = 2,
     })
     corner(root, R_XL)
-    local rootStroke = stroke(root, Theme.Border, 1)
+    stroke(root, Theme.Border, 1)
 
-    -- Shadow follows
     register(root:GetPropertyChangedSignal("AbsolutePosition"):Connect(function()
         shadow.Position = UDim2.fromOffset(
             root.AbsolutePosition.X + root.AbsoluteSize.X / 2,
@@ -687,7 +683,6 @@ function Library:CreateWindow(opts)
         BackgroundTransparency = 1,
         Active                 = true,
     })
-    -- bottom hairline
     new("Frame", {
         Parent           = titleBar,
         Size             = UDim2.new(1, -32, 0, 1),
@@ -696,7 +691,6 @@ function Library:CreateWindow(opts)
         BorderSizePixel  = 0,
     })
 
-    -- Title texts (left)
     local titleText = new("TextLabel", {
         Parent                 = titleBar,
         BackgroundTransparency = 1,
@@ -727,7 +721,6 @@ function Library:CreateWindow(opts)
         titleText.Size = UDim2.new(1, -90, 1, 0)
     end
 
-    -- Right buttons (drawn icons)
     local function makeIconBtn(order, drawFn, danger)
         local b = new("TextButton", {
             Parent                 = titleBar,
@@ -772,6 +765,9 @@ function Library:CreateWindow(opts)
 
     ----------------------------------------------------------------
     -- BOTTOM TAB BAR (56h)
+    -- ИСПРАВЛЕНИЕ: убираем corner(tabBar) и TopLip.
+    -- root имеет ClipsDescendants=true + corner(R_XL), поэтому
+    -- нижние углы таббара автоматически срежутся правильно.
     ----------------------------------------------------------------
     local tabBarH = 56
     local tabBar = new("Frame", {
@@ -782,21 +778,10 @@ function Library:CreateWindow(opts)
         Size             = UDim2.new(1, 0, 0, tabBarH),
         BackgroundColor3 = Theme.Bg,
         BorderSizePixel  = 0,
+        -- НЕТ corner() — root.ClipsDescendants срежет углы как надо
+        ZIndex           = 2,
     })
-    -- TabBar has rounded R_XL corners (matches root's bottom radius).
-    -- We add a "topLip" frame on top to MASK the rounded TOP corners back
-    -- to sharp, so visually only the BOTTOM corners stay rounded.
-    corner(tabBar, R_XL)
-    local topLip = new("Frame", {
-        Parent           = tabBar,
-        Name             = "TopLip",
-        Position         = UDim2.fromOffset(0, 0),
-        Size             = UDim2.new(1, 0, 0, R_XL.Offset),
-        BackgroundColor3 = Theme.Bg,
-        BorderSizePixel  = 0,
-        ZIndex           = 0,
-    })
-    -- top hairline (above the lip)
+    -- Только верхняя разделительная линия
     new("Frame", {
         Parent           = tabBar,
         Size             = UDim2.new(1, -32, 0, 1),
@@ -819,7 +804,6 @@ function Library:CreateWindow(opts)
         Enum.HorizontalAlignment.Center, Enum.VerticalAlignment.Center)
     tabLayout.HorizontalFlex = Enum.UIFlexAlignment.Fill
 
-    -- Animated indicator pill above active tab
     local indicator = new("Frame", {
         Parent           = tabBar,
         Size             = UDim2.fromOffset(24, 3),
@@ -833,7 +817,7 @@ function Library:CreateWindow(opts)
     corner(indicator, R_PILL)
 
     ----------------------------------------------------------------
-    -- CONTENT (between titlebar and tab bar)
+    -- CONTENT
     ----------------------------------------------------------------
     local content = new("Frame", {
         Parent                 = root,
@@ -875,7 +859,6 @@ function Window:_updateIndicator(tab, animate)
     if not tab then ind.Visible = false return end
     ind.Visible = true
     local btn = tab.Button
-    -- compute relative position inside TabBar
     local btnAbsX = btn.AbsolutePosition.X
     local btnW    = btn.AbsoluteSize.X
     local barAbsX = self.TabBar.AbsolutePosition.X
@@ -904,7 +887,7 @@ function Window:CreateTab(name, iconAsset)
         BorderSizePixel        = 0,
         Text                   = "",
         AutoButtonColor        = false,
-        Size                   = UDim2.new(0, 0, 1, 0),  -- flex fill
+        Size                   = UDim2.new(0, 0, 1, 0),
     })
     pad(btn, 4, 6, 4, 6)
     listLayout(btn, Enum.FillDirection.Vertical, 2,
@@ -936,7 +919,6 @@ function Window:CreateTab(name, iconAsset)
         LayoutOrder            = 2,
     })
 
-    -- Page (single scrollable column)
     local page = new("ScrollingFrame", {
         Parent                 = self.Content,
         Name                   = name,
@@ -976,7 +958,6 @@ function Window:CreateTab(name, iconAsset)
     if not self.ActiveTab then
         self:SelectTab(tab)
     else
-        -- update indicator next frame to settle layout
         task.defer(function() self:_updateIndicator(self.ActiveTab, false) end)
     end
     return tab
@@ -998,20 +979,18 @@ function Window:SelectTab(tab)
     end
     local prev = self.ActiveTab
     self.ActiveTab = tab
-    -- defer to allow flex layout to settle the new active button position
     task.defer(function()
         self:_updateIndicator(tab, prev ~= nil)
     end)
 end
 
 ----------------------------------------------------------------------
--- SECTION (just a small caps header + items, no enclosing box)
+-- SECTION
 ----------------------------------------------------------------------
 local Section = {}
 Section.__index = Section
 
 function Tab:CreateSection(name, _side)
-    -- 'side' kept for backward-compat but ignored (single column layout)
     local frame = new("Frame", {
         Parent                 = self.Page,
         Name                   = name or "Section",
@@ -1076,7 +1055,7 @@ function Section:AddLabel(text)
 end
 
 ----------------------------------------------------------------------
--- PARAGRAPH (subtle card)
+-- PARAGRAPH
 ----------------------------------------------------------------------
 function Section:AddParagraph(opts)
     opts = opts or {}
@@ -1122,7 +1101,7 @@ function Section:AddParagraph(opts)
 end
 
 ----------------------------------------------------------------------
--- DIVIDER (hairline)
+-- DIVIDER
 ----------------------------------------------------------------------
 function Section:AddDivider()
     local frame = new("Frame", {
@@ -1140,13 +1119,14 @@ function Section:AddDivider()
 end
 
 ----------------------------------------------------------------------
--- BUTTON (Material filled)
+-- BUTTON
+-- ИСПРАВЛЕНИЕ: hover цвет берётся из Theme.AccentHover, не хардкодится
 ----------------------------------------------------------------------
 function Section:AddButton(opts)
     opts = opts or {}
     local text     = tostring(opts.Text or "Button")
     local callback = opts.Callback or function() end
-    local style    = (opts.Style or "filled"):lower()  -- filled | outlined
+    local style    = (opts.Style or "filled"):lower()
 
     local btn = new("TextButton", {
         Parent           = self.Content,
@@ -1172,14 +1152,18 @@ function Section:AddButton(opts)
     })
 
     if style == "filled" then
-        btn.MouseEnter:Connect(function() tween(btn, 0.14, { BackgroundColor3 = Color3.fromRGB(40,40,40) }) end)
-        btn.MouseLeave:Connect(function() tween(btn, 0.14, { BackgroundColor3 = Theme.Accent }) end)
+        -- ИСПРАВЛЕНИЕ: используем Theme.AccentHover вместо хардкода Color3.fromRGB(40,40,40)
+        btn.MouseEnter:Connect(function()
+            tween(btn, 0.14, { BackgroundColor3 = Theme.AccentHover })
+        end)
+        btn.MouseLeave:Connect(function()
+            tween(btn, 0.14, { BackgroundColor3 = Theme.Accent })
+        end)
     else
         attachHover(btn, Theme.Bg, Theme.Bg2, s)
     end
 
     btn.MouseButton1Click:Connect(function()
-        -- subtle press scale-down feedback
         local origSize = btn.Size
         tween(btn, 0.06, { Size = origSize - UDim2.fromOffset(0, 2) })
         task.delay(0.08, function() tween(btn, 0.12, { Size = origSize }) end)
@@ -1194,7 +1178,7 @@ function Section:AddButton(opts)
 end
 
 ----------------------------------------------------------------------
--- TOGGLE (iOS smooth switch)
+-- TOGGLE
 ----------------------------------------------------------------------
 function Section:AddToggle(opts)
     opts = opts or {}
@@ -1225,7 +1209,6 @@ function Section:AddToggle(opts)
         Text                   = text,
     })
 
-    -- Switch track
     local track = new("Frame", {
         Parent           = row,
         AnchorPoint      = Vector2.new(1, 0.5),
@@ -1245,8 +1228,7 @@ function Section:AddToggle(opts)
         ZIndex           = 2,
     })
     corner(knob, R_PILL)
-    -- subtle knob shadow
-    local knobShadow = new("ImageLabel", {
+    new("ImageLabel", {
         Parent                 = knob,
         ZIndex                 = 1,
         Size                   = UDim2.new(1, 16, 1, 16),
@@ -1295,7 +1277,7 @@ function Section:AddToggle(opts)
 end
 
 ----------------------------------------------------------------------
--- SLIDER (thick pill, no thumb)
+-- SLIDER
 ----------------------------------------------------------------------
 function Section:AddSlider(opts)
     opts = opts or {}
@@ -1340,7 +1322,6 @@ function Section:AddSlider(opts)
         Text                   = tostring(default) .. suffix,
     })
 
-    -- Thick track (pill, 14px)
     local TRACK_H = 14
     local track = new("Frame", {
         Parent           = frame,
@@ -1394,7 +1375,7 @@ function Section:AddSlider(opts)
         api:Set(minV + (maxV - minV) * pct)
     end
 
-    local function onBegan(input)
+    track.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1
         or input.UserInputType == Enum.UserInputType.Touch then
             dragging = true
@@ -1402,9 +1383,7 @@ function Section:AddSlider(opts)
                                  Position = UDim2.new(0, 0, 0, 21) })
             updateFromInput(input)
         end
-    end
-    track.InputBegan:Connect(onBegan)
-
+    end)
     register(UIS.InputChanged:Connect(function(input)
         if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
         or input.UserInputType == Enum.UserInputType.Touch) then
@@ -1425,7 +1404,7 @@ function Section:AddSlider(opts)
 end
 
 ----------------------------------------------------------------------
--- DROPDOWN (single, drawn chevron)
+-- DROPDOWN
 ----------------------------------------------------------------------
 function Section:AddDropdown(opts)
     opts = opts or {}
@@ -1486,7 +1465,6 @@ function Section:AddDropdown(opts)
     })
     local chevron = drawChevron(arrowHolder, 12, Theme.SubText)
 
-    -- Popup list
     local list = new("Frame", {
         Parent           = getScreenGui(),
         Visible          = false,
@@ -1496,7 +1474,6 @@ function Section:AddDropdown(opts)
     })
     corner(list, R_MD)
     stroke(list, Theme.BorderHi, 1)
-    -- soft shadow
     new("ImageLabel", {
         Parent                 = list,
         ZIndex                 = 999,
@@ -1909,7 +1886,7 @@ function Section:AddMultiDropdown(opts)
 end
 
 ----------------------------------------------------------------------
--- TEXTBOX (Material outlined)
+-- TEXTBOX
 ----------------------------------------------------------------------
 function Section:AddTextbox(opts)
     opts = opts or {}
@@ -2136,9 +2113,8 @@ function Section:AddKeybind(opts)
 end
 
 ----------------------------------------------------------------------
--- COLORPICKER (Hue + Lightness · 2 strips · draggable popup)
+-- COLORPICKER
 ----------------------------------------------------------------------
--- Convert HSL to RGB (saturation = 1 always for our 2-strip design)
 local function hslToColor(h, s, l)
     local function f(n)
         local k = (n + h * 12) % 12
@@ -2147,7 +2123,6 @@ local function hslToColor(h, s, l)
     end
     return Color3.new(f(0), f(8), f(4))
 end
--- Convert Color3 -> (h, l) given saturation = 1
 local function colorToHL(c)
     local mx = math.max(c.R, c.G, c.B)
     local mn = math.min(c.R, c.G, c.B)
@@ -2209,15 +2184,14 @@ function Section:AddColorpicker(opts)
     corner(swatch, R_PILL)
     local swStroke = stroke(swatch, Theme.BorderHi, 1)
 
-    -- Popup
-    local POP_W   = 240
-    local headerH = 30
-    local stripH  = 16
+    local POP_W    = 240
+    local headerH  = 30
+    local stripH   = 16
     local previewH = 32
-    local hexH    = 28
-    local gap     = 10
-    local popupH  = 12 + headerH + 6 + previewH + gap + stripH + gap + stripH
-                    + (hasAlpha and (gap + stripH) or 0) + gap + hexH + 12
+    local hexH     = 28
+    local gap      = 10
+    local popupH   = 12 + headerH + 6 + previewH + gap + stripH + gap + stripH
+                     + (hasAlpha and (gap + stripH) or 0) + gap + hexH + 12
 
     local popup = new("Frame", {
         Parent           = getScreenGui(),
@@ -2231,7 +2205,6 @@ function Section:AddColorpicker(opts)
     corner(popup, R_LG)
     stroke(popup, Theme.BorderHi, 1)
     pad(popup, 12, 12, 12, 12)
-    -- soft drop shadow
     new("ImageLabel", {
         Parent                 = popup,
         ZIndex                 = 1499,
@@ -2245,7 +2218,6 @@ function Section:AddColorpicker(opts)
         SliceCenter            = Rect.new(12, 12, 244, 244),
     })
 
-    -- HEADER (drag handle)
     local header = new("Frame", {
         Parent                 = popup,
         Size                   = UDim2.new(1, 0, 0, headerH),
@@ -2265,7 +2237,6 @@ function Section:AddColorpicker(opts)
         Text                   = text,
         ZIndex                 = 1502,
     })
-    -- close X (drawn cross)
     local closeBtn = new("TextButton", {
         Parent                 = header,
         AnchorPoint            = Vector2.new(1, 0.5),
@@ -2299,7 +2270,6 @@ function Section:AddColorpicker(opts)
 
     local nextY = headerH + 6
 
-    -- PREVIEW row (current color · big swatch)
     local preview = new("Frame", {
         Parent           = popup,
         Position         = UDim2.fromOffset(0, nextY),
@@ -2312,7 +2282,6 @@ function Section:AddColorpicker(opts)
     stroke(preview, Theme.BorderHi, 1)
     nextY = nextY + previewH + gap
 
-    -- HUE strip
     local hueBar = new("Frame", {
         Parent          = popup,
         Position        = UDim2.fromOffset(0, nextY),
@@ -2350,7 +2319,6 @@ function Section:AddColorpicker(opts)
     hueCStroke:SetAttribute("ObsPreserve", true)
     nextY = nextY + stripH + gap
 
-    -- LIGHTNESS strip (black → currentHue → white)
     local lightBar = new("Frame", {
         Parent           = popup,
         Position         = UDim2.fromOffset(0, nextY),
@@ -2378,7 +2346,6 @@ function Section:AddColorpicker(opts)
     lightCStroke:SetAttribute("ObsPreserve", true)
     nextY = nextY + stripH + gap
 
-    -- ALPHA strip (optional)
     local alphaBar, alphaCursor
     if hasAlpha then
         alphaBar = new("Frame", {
@@ -2412,7 +2379,6 @@ function Section:AddColorpicker(opts)
         nextY = nextY + stripH + gap
     end
 
-    -- HEX input
     local hex = new("TextBox", {
         Parent                 = popup,
         Position               = UDim2.fromOffset(0, nextY),
@@ -2431,16 +2397,11 @@ function Section:AddColorpicker(opts)
     corner(hex, R_MD)
     local hexStroke = stroke(hex, Theme.Border, 1)
 
-    ----------------------------------------------------------------
-    -- STATE
-    ----------------------------------------------------------------
     local h, l = colorToHL(default)
     local alpha = 1
-    local userMoved = false        -- once user drags via header, popup sticks
+    local userMoved = false
     local api = {}
 
-    -- Header drag: lets user freely position the popup; once dragged,
-    -- the auto-follow (which would snap it back to the swatch) is disabled.
     makeDraggable(popup, header, function() userMoved = true end)
 
     local function color() return hslToColor(h, 1, l) end
@@ -2453,7 +2414,6 @@ function Section:AddColorpicker(opts)
         local c = color()
         swatch.BackgroundColor3 = c
         preview.BackgroundColor3 = c
-        -- update lightness gradient: black → pure hue → white
         local pureHue = hslToColor(h, 1, 0.5)
         lightGrad.Color = ColorSequence.new({
             ColorSequenceKeypoint.new(0,   Color3.fromRGB(0, 0, 0)),
@@ -2477,7 +2437,7 @@ function Section:AddColorpicker(opts)
 
     function api:UpdatePosition()
         if not popup.Visible then return end
-        if userMoved then return end  -- user has placed the popup; keep it there
+        if userMoved then return end
         local absPos  = swatch.AbsolutePosition
         local absSize = swatch.AbsoluteSize
         local sg      = getScreenGui()
@@ -2499,7 +2459,7 @@ function Section:AddColorpicker(opts)
         end
         Library._activeColorpicker = api
         popup.Visible = true
-        userMoved = false  -- fresh open re-anchors near the swatch
+        userMoved = false
         api:UpdatePosition()
         tween(swStroke, 0.14, { Color = Theme.Accent })
     end
@@ -2514,9 +2474,6 @@ function Section:AddColorpicker(opts)
     end)
     closeBtn.MouseButton1Click:Connect(function() api:Close() end)
 
-    ----------------------------------------------------------------
-    -- STRIP DRAG HELPERS
-    ----------------------------------------------------------------
     local function makeStripDrag(strip, onPct)
         local dragging = false
         local function update(input)
@@ -2553,7 +2510,6 @@ function Section:AddColorpicker(opts)
         makeStripDrag(alphaBar, function(pct) alpha = pct; api:Set(nil, alpha) end)
     end
 
-    -- Hex
     hex.Focused:Connect(function() tween(hexStroke, 0.14, { Color = Theme.Accent }) end)
     hex.FocusLost:Connect(function()
         tween(hexStroke, 0.14, { Color = Theme.Border })
@@ -2577,7 +2533,8 @@ function Section:AddColorpicker(opts)
 end
 
 ----------------------------------------------------------------------
--- NOTIFICATIONS (compact + smart overflow close)
+-- NOTIFICATIONS
+-- ИСПРАВЛЕНИЕ: анимация overflow — slide-up + fade вместо резкого исчезания
 ----------------------------------------------------------------------
 local NOTIFY_W   = 240
 local NOTIFY_MAX = 4
@@ -2595,6 +2552,7 @@ local function getNotifyHolder()
         AutomaticSize          = Enum.AutomaticSize.Y,
         BackgroundTransparency = 1,
         ZIndex                 = 5000,
+        ClipsDescendants       = false,
     })
     listLayout(holder, Enum.FillDirection.Vertical, 6,
         Enum.HorizontalAlignment.Right, Enum.VerticalAlignment.Top)
@@ -2610,14 +2568,27 @@ function Library:Notify(opts)
 
     local holder = getNotifyHolder()
 
+    -- wrapper для slide анимации
+    local wrapper = new("Frame", {
+        Parent                 = holder,
+        Size                   = UDim2.new(1, 0, 0, 0),
+        AutomaticSize          = Enum.AutomaticSize.Y,
+        BackgroundTransparency = 1,
+        ClipsDescendants       = false,
+        ZIndex                 = 5000,
+    })
+
     local card = new("Frame", {
-        Parent           = holder,
+        Parent           = wrapper,
         Size             = UDim2.new(1, 0, 0, 0),
         AutomaticSize    = Enum.AutomaticSize.Y,
         BackgroundColor3 = Theme.Bg,
         BorderSizePixel  = 0,
         ZIndex           = 5001,
         ClipsDescendants = true,
+        -- начинаем сдвинутыми вправо (slide-in из правого края)
+        Position         = UDim2.new(0, NOTIFY_W + 20, 0, 0),
+        BackgroundTransparency = 0,
     })
     corner(card, R_MD)
     stroke(card, Theme.Border, 1)
@@ -2673,7 +2644,6 @@ function Library:Notify(opts)
         })
     end
 
-    -- Progress bar (bottom)
     local bar = new("Frame", {
         Parent           = card,
         AnchorPoint      = Vector2.new(0, 1),
@@ -2684,53 +2654,92 @@ function Library:Notify(opts)
         ZIndex           = 5002,
     })
 
-    local function tweenTrans(t, dur)
-        tween(card, dur, { BackgroundTransparency = t })
+    -- Утилита: fade всех дочерних элементов
+    local function setDescTransp(t, dur)
         for _, d in ipairs(card:GetDescendants()) do
             if d:IsA("TextLabel") then
-                tween(d, dur, { TextTransparency = t })
+                if dur then tween(d, dur, { TextTransparency = t })
+                else d.TextTransparency = t end
             elseif d:IsA("UIStroke") then
-                tween(d, dur, { Transparency = t })
-            elseif d:IsA("Frame") and d.Name ~= "Content" then
-                tween(d, dur, { BackgroundTransparency = t })
+                if dur then tween(d, dur, { Transparency = t })
+                else d.Transparency = t end
+            elseif d:IsA("Frame") and d ~= content then
+                if dur then tween(d, dur, { BackgroundTransparency = t })
+                else d.BackgroundTransparency = t end
             elseif d:IsA("ImageLabel") then
-                tween(d, dur, { ImageTransparency = math.min(1, 0.88 + t) })
-            end
-        end
-    end
-    local function setTrans(t)
-        card.BackgroundTransparency = t
-        for _, d in ipairs(card:GetDescendants()) do
-            if d:IsA("TextLabel") then
-                d.TextTransparency = t
-            elseif d:IsA("UIStroke") then
-                d.Transparency = t
-            elseif d:IsA("Frame") and d.Name ~= "Content" then
-                d.BackgroundTransparency = t
+                local base = 0.88
+                if dur then tween(d, dur, { ImageTransparency = math.min(1, base + t * (1 - base)) })
+                else d.ImageTransparency = math.min(1, base + t * (1 - base)) end
             end
         end
     end
 
-    local entry = { Card = card, Closed = false }
+    local entry = { Card = card, Wrapper = wrapper, Closed = false }
+
+    -- ИСПРАВЛЕНИЕ: два варианта закрытия
+    -- fast=true → slide-up быстрый (overflow)
+    -- fast=false → slide-right + fade (нормальное истечение)
     function entry:Close(fast)
         if self.Closed then return end
         self.Closed = true
-        local dur = fast and 0.12 or 0.2
-        tweenTrans(1, dur)
-        task.delay(dur + 0.02, function()
-            if card and card.Parent then card:Destroy() end
-        end)
+
+        if fast then
+            -- Overflow: быстро slide вправо + fade
+            local dur = 0.20
+            tween(card, dur, {
+                Position         = UDim2.new(0, NOTIFY_W + 20, 0, 0),
+                BackgroundTransparency = 1,
+            }, Enum.EasingStyle.Quart, Enum.EasingDirection.In)
+            setDescTransp(1, dur)
+            task.delay(dur + 0.02, function()
+                -- collapse wrapper высоту плавно
+                if wrapper and wrapper.Parent then
+                    wrapper.AutomaticSize = Enum.AutomaticSize.None
+                    local h = wrapper.AbsoluteSize.Y
+                    wrapper.Size = UDim2.fromOffset(NOTIFY_W, h)
+                    tween(wrapper, 0.18, { Size = UDim2.fromOffset(NOTIFY_W, 0) },
+                        Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+                    task.delay(0.20, function()
+                        if wrapper and wrapper.Parent then wrapper:Destroy() end
+                    end)
+                end
+            end)
+        else
+            -- Обычное: slide вправо + fade
+            local dur = 0.22
+            tween(card, dur, {
+                Position         = UDim2.new(0, NOTIFY_W + 20, 0, 0),
+                BackgroundTransparency = 1,
+            }, Enum.EasingStyle.Quart, Enum.EasingDirection.In)
+            setDescTransp(1, dur)
+            task.delay(dur + 0.02, function()
+                if wrapper and wrapper.Parent then
+                    wrapper.AutomaticSize = Enum.AutomaticSize.None
+                    local h = wrapper.AbsoluteSize.Y
+                    wrapper.Size = UDim2.fromOffset(NOTIFY_W, h)
+                    tween(wrapper, 0.22, { Size = UDim2.fromOffset(NOTIFY_W, 0) },
+                        Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+                    task.delay(0.24, function()
+                        if wrapper and wrapper.Parent then wrapper:Destroy() end
+                    end)
+                end
+            end)
+        end
+
         for i, e in ipairs(Library._notifications) do
             if e == self then table.remove(Library._notifications, i) break end
         end
     end
 
-    setTrans(1)
-    tweenTrans(0, 0.18)
+    -- Slide-in анимация появления
+    tween(card, 0.28, { Position = UDim2.fromOffset(0, 0) },
+        Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+
     tween(bar, duration, { Size = UDim2.new(0, 0, 0, 2) }, Enum.EasingStyle.Linear)
 
     table.insert(Library._notifications, entry)
-    -- Smart overflow: close oldest fast if too many
+
+    -- Overflow: убираем самое старое
     while #Library._notifications > NOTIFY_MAX do
         local oldest = Library._notifications[1]
         if oldest then oldest:Close(true) else break end
