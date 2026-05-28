@@ -83,6 +83,30 @@ local function _themeTween(inst, prop, to, dur)
     end
 end
 
+local function _findThemeKey(c)
+    if typeof(c) ~= "Color3" then return nil end
+    for k, v in pairs(Theme) do
+        if math.abs(c.R - v.R) < 0.001
+        and math.abs(c.G - v.G) < 0.001
+        and math.abs(c.B - v.B) < 0.001 then
+            return k
+        end
+    end
+    return nil
+end
+
+local _PROPS_BY_CLASS = {
+    Frame                = { "BackgroundColor3" },
+    TextButton           = { "BackgroundColor3", "TextColor3", "PlaceholderColor3" },
+    TextBox              = { "BackgroundColor3", "TextColor3", "PlaceholderColor3" },
+    TextLabel            = { "BackgroundColor3", "TextColor3", "PlaceholderColor3" },
+    ImageButton          = { "BackgroundColor3", "ImageColor3" },
+    ImageLabel           = { "BackgroundColor3", "ImageColor3" },
+    ScrollingFrame       = { "BackgroundColor3", "ScrollBarImageColor3" },
+    UIStroke             = { "Color" },
+    ScreenGui            = { },
+}
+
 function Library:SetTheme(name, instant)
     local target = self.Themes[name] or self.Themes.light
     if not target then return end
@@ -97,16 +121,17 @@ function Library:SetTheme(name, instant)
     local sg = self.ScreenGui
     if not sg then return end
 
-    local function remap(c)
+    local function remapByColor(c)
         if not c then return nil end
         for k, oldC in pairs(old) do
             if colorEq(c, oldC) then return target[k] end
         end
         local bestKey, bestDist = nil, 0.15
         for k, oldC in pairs(old) do
-            local d = colorDist(c, oldC)
+            local d = colorDist and colorDist(c, oldC)
+                       or math.sqrt((c.R-oldC.R)^2 + (c.G-oldC.G)^2 + (c.B-oldC.B)^2)
             if d < bestDist then
-                bestKey = k
+                bestKey  = k
                 bestDist = d
             end
         end
@@ -125,27 +150,35 @@ function Library:SetTheme(name, instant)
         end
     end
 
+    local function applyOne(inst, prop)
+        local key = inst:GetAttribute("ObsT_" .. prop)
+        if key and target[key] then
+            setOrTween(inst, prop, target[key])
+            return
+        end
+        local current
+        local ok = pcall(function() current = inst[prop] end)
+        if ok and current then
+            local newC = remapByColor(current)
+            if newC then
+                setOrTween(inst, prop, newC)
+                local fk = _findThemeKey(newC)
+                if fk then
+                    pcall(function() inst:SetAttribute("ObsT_" .. prop, fk) end)
+                end
+            end
+        end
+    end
+
     local instances = sg:GetDescendants()
     table.insert(instances, sg)
     for _, inst in ipairs(instances) do
         if not inst:GetAttribute("ObsPreserve") then
-            local cls = inst.ClassName
-            if cls == "Frame" or cls == "TextButton" or cls == "TextBox"
-            or cls == "ImageButton" or cls == "ImageLabel" or cls == "ScrollingFrame" then
-                setOrTween(inst, "BackgroundColor3", remap(inst.BackgroundColor3))
-            end
-            if cls == "ScrollingFrame" then
-                setOrTween(inst, "ScrollBarImageColor3", remap(inst.ScrollBarImageColor3))
-            end
-            if cls == "TextLabel" or cls == "TextButton" or cls == "TextBox" then
-                setOrTween(inst, "TextColor3",        remap(inst.TextColor3))
-                setOrTween(inst, "PlaceholderColor3", remap(inst.PlaceholderColor3))
-            end
-            if cls == "ImageLabel" or cls == "ImageButton" then
-                setOrTween(inst, "ImageColor3", remap(inst.ImageColor3))
-            end
-            if cls == "UIStroke" then
-                setOrTween(inst, "Color", remap(inst.Color))
+            local props = _PROPS_BY_CLASS[inst.ClassName]
+            if props then
+                for _, prop in ipairs(props) do
+                    applyOne(inst, prop)
+                end
             end
         end
     end
@@ -165,16 +198,57 @@ local R_LG   = UDim.new(0, 14)
 local R_XL   = UDim.new(0, 16)
 local R_PILL = UDim.new(1, 0)
 
+local THEMED_PROPS = {
+    BackgroundColor3    = true,
+    TextColor3          = true,
+    PlaceholderColor3   = true,
+    ImageColor3         = true,
+    ScrollBarImageColor3= true,
+    Color               = true,
+}
+
+local function _findThemeKey(c)
+    if typeof(c) ~= "Color3" then return nil end
+    for k, v in pairs(Theme) do
+        if math.abs(c.R - v.R) < 0.001
+        and math.abs(c.G - v.G) < 0.001
+        and math.abs(c.B - v.B) < 0.001 then
+            return k
+        end
+    end
+    return nil
+end
+
 local function new(class, props)
     local inst = Instance.new(class)
     if props then
         for k, v in pairs(props) do
             if k ~= "Parent" then inst[k] = v end
         end
+        for k, v in pairs(props) do
+            if THEMED_PROPS[k] then
+                local key = _findThemeKey(v)
+                if key then
+                    pcall(function()
+                        inst:SetAttribute("ObsT_" .. k, key)
+                    end)
+                end
+            end
+        end
         if props.Parent then inst.Parent = props.Parent end
     end
     return inst
 end
+
+local function bindTheme(inst, prop, key)
+    if not inst or not prop or not key then return end
+    if Theme[key] == nil then return end
+    pcall(function()
+        inst[prop] = Theme[key]
+        inst:SetAttribute("ObsT_" .. prop, key)
+    end)
+end
+Library._bindTheme = bindTheme
 
 local function corner(parent, radius)
     local r = type(radius) == "number" and UDim.new(0, radius)
