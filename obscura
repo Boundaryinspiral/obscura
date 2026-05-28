@@ -1,14 +1,3 @@
---[[
-    OBSCURA UI LIBRARY  v3.0  ·  Minimal Material × iOS
-    --------------------------------------------------------------
-    · Чёрно-белая палитра, light theme, очень мягкие скругления
-    · Bottom tab bar (как iOS / Material BottomNav)
-    · Один скроллящийся столбец контента, без боксов вокруг секций
-    · Все иконки (chevron, check, close, minus, hamburger) рисуются
-      повёрнутыми Frame'ами — никаких юникод-«эмодзи»
-    · PC + Mobile (touch + draggable)
-]]
-
 local Library              = {}
 Library.__index            = Library
 Library.Flags              = {}
@@ -30,42 +19,37 @@ local Players     = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
 local LP          = Players.LocalPlayer
 
-----------------------------------------------------------------------
--- THEMES (Material light × iOS, plus Dark variant)
-----------------------------------------------------------------------
--- IMPORTANT: every value within a single theme MUST be unique. If two keys
--- share a Color3, the live remap can't tell them apart and theme switching
--- becomes ambiguous. AccentText/Shadow are intentionally offset by 1-2 RGB
--- units so they don't collide with Bg/Accent (visually identical).
 local ThemeLight = {
     Bg          = Color3.fromRGB(255, 255, 255),
-    Bg2         = Color3.fromRGB(247, 247, 249),
-    Bg3         = Color3.fromRGB(238, 238, 242),
-    Hover       = Color3.fromRGB(232, 232, 237),
-    Border      = Color3.fromRGB(228, 228, 232),
-    BorderHi    = Color3.fromRGB(199, 199, 204),
-    Text        = Color3.fromRGB(28, 28, 30),
-    SubText     = Color3.fromRGB(110, 110, 115),
-    DimText     = Color3.fromRGB(174, 174, 178),
-    Accent      = Color3.fromRGB(0, 0, 0),
-    AccentText  = Color3.fromRGB(250, 250, 250),  -- unique vs Bg
-    Track       = Color3.fromRGB(229, 229, 234),
-    Shadow      = Color3.fromRGB(8, 8, 8),         -- unique vs Accent
+    Bg2         = Color3.fromRGB(246, 247, 250),
+    Bg3         = Color3.fromRGB(234, 236, 242),
+    Hover       = Color3.fromRGB(224, 226, 234),
+    Border      = Color3.fromRGB(218, 220, 228),
+    BorderHi    = Color3.fromRGB(180, 184, 196),
+    Text        = Color3.fromRGB(20, 22, 28),
+    SubText     = Color3.fromRGB(104, 108, 122),
+    DimText     = Color3.fromRGB(160, 164, 178),
+    Accent      = Color3.fromRGB(22, 24, 30),
+    AccentText  = Color3.fromRGB(248, 249, 252),
+    Track       = Color3.fromRGB(212, 215, 224),
+    Shadow      = Color3.fromRGB(6, 8, 12),
+    Knob        = Color3.fromRGB(252, 253, 255),
 }
 local ThemeDark = {
-    Bg          = Color3.fromRGB(16, 16, 19),     -- deep neutral
-    Bg2         = Color3.fromRGB(24, 24, 27),     -- card / input
-    Bg3         = Color3.fromRGB(34, 34, 38),     -- dropdown / pressed
-    Hover       = Color3.fromRGB(44, 44, 48),
-    Border      = Color3.fromRGB(36, 36, 40),
-    BorderHi    = Color3.fromRGB(62, 62, 68),
-    Text        = Color3.fromRGB(245, 245, 247),
-    SubText     = Color3.fromRGB(160, 160, 168),
-    DimText     = Color3.fromRGB(100, 100, 108),
-    Accent      = Color3.fromRGB(255, 255, 255),
-    AccentText  = Color3.fromRGB(8, 8, 10),        -- unique vs Bg/Shadow
-    Track       = Color3.fromRGB(40, 40, 44),      -- unique vs Hover/Border
-    Shadow      = Color3.fromRGB(0, 0, 0),
+    Bg          = Color3.fromRGB(30, 32, 40),
+    Bg2         = Color3.fromRGB(38, 40, 50),
+    Bg3         = Color3.fromRGB(50, 53, 65),
+    Hover       = Color3.fromRGB(62, 66, 80),
+    Border      = Color3.fromRGB(55, 58, 72),
+    BorderHi    = Color3.fromRGB(95, 100, 120),
+    Text        = Color3.fromRGB(235, 237, 245),
+    SubText     = Color3.fromRGB(155, 160, 180),
+    DimText     = Color3.fromRGB(105, 110, 128),
+    Accent      = Color3.fromRGB(240, 242, 250),
+    AccentText  = Color3.fromRGB(24, 26, 34),
+    Track       = Color3.fromRGB(70, 74, 90),
+    Shadow      = Color3.fromRGB(8, 8, 14),
+    Knob        = Color3.fromRGB(245, 247, 253),
 }
 
 local Theme = {}
@@ -74,15 +58,19 @@ Library.Theme       = Theme
 Library.Themes      = { light = ThemeLight, dark = ThemeDark }
 Library.CurrentTheme = "light"
 
--- Snap two Color3 if their components are within tolerance
 local function colorEq(a, b)
     if not a or not b then return false end
-    return math.abs(a.R - b.R) < 0.001
-       and math.abs(a.G - b.G) < 0.001
-       and math.abs(a.B - b.B) < 0.001
+    return math.abs(a.R - b.R) < 0.02
+       and math.abs(a.G - b.G) < 0.02
+       and math.abs(a.B - b.B) < 0.02
 end
 
--- Tween a single property of an instance to `to` over `dur` seconds
+local function colorDist(a, b)
+    if not a or not b then return 999 end
+    local dr, dg, db = a.R - b.R, a.G - b.G, a.B - b.B
+    return math.sqrt(dr*dr + dg*dg + db*db)
+end
+
 local function _themeTween(inst, prop, to, dur)
     local ok = pcall(function()
         local tw = TS:Create(inst, TweenInfo.new(
@@ -100,11 +88,9 @@ function Library:SetTheme(name, instant)
     if not target then return end
     if self.CurrentTheme == name and not instant then return end
 
-    -- snapshot old palette (we use these to identify which Theme key each
-    -- existing color came from, then tween toward the matching new value)
     local old = {}
     for k, v in pairs(Theme) do old[k] = v end
-    -- mutate Theme table in place so subsequent reads see the new palette
+
     for k, v in pairs(target) do Theme[k] = v end
     self.CurrentTheme = name
 
@@ -116,6 +102,15 @@ function Library:SetTheme(name, instant)
         for k, oldC in pairs(old) do
             if colorEq(c, oldC) then return target[k] end
         end
+        local bestKey, bestDist = nil, 0.15
+        for k, oldC in pairs(old) do
+            local d = colorDist(c, oldC)
+            if d < bestDist then
+                bestKey = k
+                bestDist = d
+            end
+        end
+        if bestKey then return target[bestKey] end
         return nil
     end
 
@@ -164,16 +159,12 @@ local FONT, FONT_M, FONT_SB, FONT_B =
 
 local TEXT_XS, TEXT_SM, TEXT_MD, TEXT_LG = 11, 12, 13, 15
 
--- Corner radii
 local R_SM   = UDim.new(0, 6)
 local R_MD   = UDim.new(0, 10)
 local R_LG   = UDim.new(0, 14)
-local R_XL   = UDim.new(0, 16)    -- main window
+local R_XL   = UDim.new(0, 16)
 local R_PILL = UDim.new(1, 0)
 
-----------------------------------------------------------------------
--- LOW-LEVEL HELPERS
-----------------------------------------------------------------------
 local function new(class, props)
     local inst = Instance.new(class)
     if props then
@@ -240,10 +231,6 @@ local function isInside(f, p)
        and p.Y >= pp.Y and p.Y <= pp.Y + ss.Y
 end
 
-----------------------------------------------------------------------
--- DRAWN ICONS (no unicode emoji)
-----------------------------------------------------------------------
--- Chevron pointing down: \/
 local function drawChevron(parent, w, color)
     local h = math.floor(w * 0.55)
     local cont = new("Frame", {
@@ -289,7 +276,6 @@ local function drawChevron(parent, w, color)
     return api
 end
 
--- Checkmark (✓) drawn from two rotated bars
 local function drawCheck(parent, size, color)
     local cont = new("Frame", {
         Parent                 = parent,
@@ -327,7 +313,6 @@ local function drawCheck(parent, size, color)
     return api
 end
 
--- Cross (×) drawn from two rotated bars
 local function drawCross(parent, size, color)
     local cont = new("Frame", {
         Parent                 = parent,
@@ -365,7 +350,6 @@ local function drawCross(parent, size, color)
     return api
 end
 
--- Minus / horizontal line
 local function drawMinus(parent, size, color)
     local cont = new("Frame", {
         Parent                 = parent,
@@ -384,7 +368,6 @@ local function drawMinus(parent, size, color)
     return { Container = cont, SetColor = function(_, c) bar.BackgroundColor3 = c end }
 end
 
--- Hamburger (3 lines)
 local function drawHamburger(parent, size, color)
     local cont = new("Frame", {
         Parent                 = parent,
@@ -407,9 +390,6 @@ local function drawHamburger(parent, size, color)
     return { Container = cont }
 end
 
-----------------------------------------------------------------------
--- DRAGGABLE
-----------------------------------------------------------------------
 local function makeDraggable(target, handle, onDragStart)
     handle = handle or target
     local dragging, dragInput, startPos, startInput = false, nil, nil, nil
@@ -444,9 +424,6 @@ local function makeDraggable(target, handle, onDragStart)
     end))
 end
 
-----------------------------------------------------------------------
--- SCREEN GUI (executor-aware)
-----------------------------------------------------------------------
 local function getScreenGui()
     if Library.ScreenGui and Library.ScreenGui.Parent then return Library.ScreenGui end
     local sg = new("ScreenGui", {
@@ -471,9 +448,6 @@ local function getScreenGui()
     return sg
 end
 
-----------------------------------------------------------------------
--- KEY UTILS
-----------------------------------------------------------------------
 local KEY_NAMES = {
     [Enum.UserInputType.MouseButton1] = "MB1",
     [Enum.UserInputType.MouseButton2] = "MB2",
@@ -496,9 +470,6 @@ local function isKeyPressed(key, input)
     return false
 end
 
-----------------------------------------------------------------------
--- FLAGS
-----------------------------------------------------------------------
 function Library:SetFlag(flag, value)
     if not flag then return end
     Library.Flags[flag] = value
@@ -515,9 +486,6 @@ function Library:OnFlag(flag, fn)
     table.insert(Library.FlagCallbacks[flag], fn)
 end
 
-----------------------------------------------------------------------
--- TOGGLE / DESTROY
-----------------------------------------------------------------------
 function Library:Toggle(state)
     if state == nil then state = not Library.Open end
     Library.Open = state
@@ -545,9 +513,6 @@ function Library:Destroy()
     Library._notifications = {}
 end
 
-----------------------------------------------------------------------
--- MOBILE TOGGLE BUTTON (drawn hamburger)
-----------------------------------------------------------------------
 local function makeMobileButton()
     if Library.MobileButton then return end
     local sg = getScreenGui()
@@ -564,7 +529,7 @@ local function makeMobileButton()
         Active           = true,
     })
     corner(btn, R_PILL)
-    -- subtle shadow
+
     local sh = new("ImageLabel", {
         Parent                 = btn,
         ZIndex                 = 9999,
@@ -592,9 +557,6 @@ local function makeMobileButton()
     Library.MobileButton = btn
 end
 
-----------------------------------------------------------------------
--- HEARTBEAT (popup follow)
-----------------------------------------------------------------------
 register(RS.Heartbeat:Connect(function()
     local d = Library._activeDropdown
     if d and d.UpdatePosition then pcall(d.UpdatePosition, d) end
@@ -602,9 +564,6 @@ register(RS.Heartbeat:Connect(function()
     if cp and cp.UpdatePosition then pcall(cp.UpdatePosition, cp) end
 end))
 
-----------------------------------------------------------------------
--- OUTSIDE-CLICK CLOSE
-----------------------------------------------------------------------
 register(UIS.InputBegan:Connect(function(input)
     if input.UserInputType ~= Enum.UserInputType.MouseButton1
    and input.UserInputType ~= Enum.UserInputType.Touch then return end
@@ -623,18 +582,12 @@ register(UIS.InputBegan:Connect(function(input)
     end
 end))
 
-----------------------------------------------------------------------
--- HOVER
-----------------------------------------------------------------------
--- `normal` / `hover` may be either a Color3 or a Theme key name (string).
--- Strings are resolved on every event so live theme switches pick up the
--- new palette automatically.
 local function _resolveColor(c)
     if typeof(c) == "Color3" then return c end
     if type(c) == "string" then return Theme[c] end
     return nil
 end
--- Derive a hover variant of the current accent that works for any theme.
+
 local function accentHoverColor()
     local a = Theme.Accent
     if (a.R + a.G + a.B) / 3 > 0.5 then
@@ -658,9 +611,6 @@ local function attachHover(btn, normal, hover, strokeInst)
     end)
 end
 
-----------------------------------------------------------------------
--- WINDOW
-----------------------------------------------------------------------
 local Window = {}
 Window.__index = Window
 
@@ -675,7 +625,6 @@ function Library:CreateWindow(opts)
 
     local sg = getScreenGui()
 
-    -- Drop shadow
     local shadow = new("ImageLabel", {
         Parent                 = sg,
         AnchorPoint            = Vector2.new(0.5, 0.5),
@@ -690,7 +639,6 @@ function Library:CreateWindow(opts)
         ZIndex                 = 1,
     })
 
-    -- Root window
     local root = new("Frame", {
         Parent           = sg,
         Name             = "Window",
@@ -706,7 +654,6 @@ function Library:CreateWindow(opts)
     corner(root, R_XL)
     local rootStroke = stroke(root, Theme.Border, 1)
 
-    -- Shadow follows
     register(root:GetPropertyChangedSignal("AbsolutePosition"):Connect(function()
         shadow.Position = UDim2.fromOffset(
             root.AbsolutePosition.X + root.AbsoluteSize.X / 2,
@@ -717,9 +664,6 @@ function Library:CreateWindow(opts)
         shadow.Visible = root.Visible
     end))
 
-    ----------------------------------------------------------------
-    -- TITLE BAR (44h)
-    ----------------------------------------------------------------
     local titleBar = new("Frame", {
         Parent                 = root,
         Name                   = "TitleBar",
@@ -727,7 +671,7 @@ function Library:CreateWindow(opts)
         BackgroundTransparency = 1,
         Active                 = true,
     })
-    -- bottom hairline
+
     new("Frame", {
         Parent           = titleBar,
         Size             = UDim2.new(1, -32, 0, 1),
@@ -736,7 +680,6 @@ function Library:CreateWindow(opts)
         BorderSizePixel  = 0,
     })
 
-    -- Title texts (left)
     local titleText = new("TextLabel", {
         Parent                 = titleBar,
         BackgroundTransparency = 1,
@@ -767,7 +710,6 @@ function Library:CreateWindow(opts)
         titleText.Size = UDim2.new(1, -90, 1, 0)
     end
 
-    -- Right buttons (drawn icons)
     local function makeIconBtn(order, drawFn, danger)
         local b = new("TextButton", {
             Parent                 = titleBar,
@@ -810,9 +752,6 @@ function Library:CreateWindow(opts)
     minBtn.MouseButton1Click:Connect(function() Library:Toggle(false) end)
     closeBtn.MouseButton1Click:Connect(function() Library:Destroy() end)
 
-    ----------------------------------------------------------------
-    -- BOTTOM TAB BAR (56h)
-    ----------------------------------------------------------------
     local tabBarH = 56
     local tabBar = new("Frame", {
         Parent           = root,
@@ -823,9 +762,7 @@ function Library:CreateWindow(opts)
         BackgroundColor3 = Theme.Bg,
         BorderSizePixel  = 0,
     })
-    -- TabBar has rounded R_XL corners (matches root's bottom radius).
-    -- We add a "topLip" frame on top to MASK the rounded TOP corners back
-    -- to sharp, so visually only the BOTTOM corners stay rounded.
+
     corner(tabBar, R_XL)
     local topLip = new("Frame", {
         Parent           = tabBar,
@@ -834,9 +771,9 @@ function Library:CreateWindow(opts)
         Size             = UDim2.new(1, 0, 0, R_XL.Offset),
         BackgroundColor3 = Theme.Bg,
         BorderSizePixel  = 0,
-        ZIndex           = 2,  -- ABOVE tabBar's own bg (ZIndex 1)
+        ZIndex           = 2,
     })
-    -- top hairline (above the lip)
+
     new("Frame", {
         Parent           = tabBar,
         Size             = UDim2.new(1, -32, 0, 1),
@@ -859,7 +796,6 @@ function Library:CreateWindow(opts)
         Enum.HorizontalAlignment.Center, Enum.VerticalAlignment.Center)
     tabLayout.HorizontalFlex = Enum.UIFlexAlignment.Fill
 
-    -- Animated indicator pill above active tab
     local indicator = new("Frame", {
         Parent           = tabBar,
         Size             = UDim2.fromOffset(24, 3),
@@ -872,9 +808,6 @@ function Library:CreateWindow(opts)
     })
     corner(indicator, R_PILL)
 
-    ----------------------------------------------------------------
-    -- CONTENT (between titlebar and tab bar)
-    ----------------------------------------------------------------
     local content = new("Frame", {
         Parent                 = root,
         Name                   = "Content",
@@ -915,7 +848,7 @@ function Window:_updateIndicator(tab, animate)
     if not tab then ind.Visible = false return end
     ind.Visible = true
     local btn = tab.Button
-    -- compute relative position inside TabBar
+
     local btnAbsX = btn.AbsolutePosition.X
     local btnW    = btn.AbsoluteSize.X
     local barAbsX = self.TabBar.AbsolutePosition.X
@@ -928,9 +861,6 @@ function Window:_updateIndicator(tab, animate)
     end
 end
 
-----------------------------------------------------------------------
--- TAB
-----------------------------------------------------------------------
 local Tab = {}
 Tab.__index = Tab
 
@@ -944,7 +874,7 @@ function Window:CreateTab(name, iconAsset)
         BorderSizePixel        = 0,
         Text                   = "",
         AutoButtonColor        = false,
-        Size                   = UDim2.new(0, 0, 1, 0),  -- flex fill
+        Size                   = UDim2.new(0, 0, 1, 0),
     })
     pad(btn, 4, 6, 4, 6)
     listLayout(btn, Enum.FillDirection.Vertical, 2,
@@ -976,7 +906,6 @@ function Window:CreateTab(name, iconAsset)
         LayoutOrder            = 2,
     })
 
-    -- Page (single scrollable column)
     local page = new("ScrollingFrame", {
         Parent                 = self.Content,
         Name                   = name,
@@ -1016,7 +945,7 @@ function Window:CreateTab(name, iconAsset)
     if not self.ActiveTab then
         self:SelectTab(tab)
     else
-        -- update indicator next frame to settle layout
+
         task.defer(function() self:_updateIndicator(self.ActiveTab, false) end)
     end
     return tab
@@ -1038,20 +967,17 @@ function Window:SelectTab(tab)
     end
     local prev = self.ActiveTab
     self.ActiveTab = tab
-    -- defer to allow flex layout to settle the new active button position
+
     task.defer(function()
         self:_updateIndicator(tab, prev ~= nil)
     end)
 end
 
-----------------------------------------------------------------------
--- SECTION (just a small caps header + items, no enclosing box)
-----------------------------------------------------------------------
 local Section = {}
 Section.__index = Section
 
 function Tab:CreateSection(name, _side)
-    -- 'side' kept for backward-compat but ignored (single column layout)
+
     local frame = new("Frame", {
         Parent                 = self.Page,
         Name                   = name or "Section",
@@ -1092,9 +1018,6 @@ function Tab:CreateSection(name, _side)
     return section
 end
 
-----------------------------------------------------------------------
--- LABEL
-----------------------------------------------------------------------
 function Section:AddLabel(text)
     local lbl = new("TextLabel", {
         Parent                 = self.Content,
@@ -1115,9 +1038,6 @@ function Section:AddLabel(text)
     return api
 end
 
-----------------------------------------------------------------------
--- PARAGRAPH (subtle card)
-----------------------------------------------------------------------
 function Section:AddParagraph(opts)
     opts = opts or {}
     local frame = new("Frame", {
@@ -1161,9 +1081,6 @@ function Section:AddParagraph(opts)
     return api
 end
 
-----------------------------------------------------------------------
--- DIVIDER (hairline)
-----------------------------------------------------------------------
 function Section:AddDivider()
     local frame = new("Frame", {
         Parent                 = self.Content,
@@ -1179,14 +1096,11 @@ function Section:AddDivider()
     })
 end
 
-----------------------------------------------------------------------
--- BUTTON (Material filled)
-----------------------------------------------------------------------
 function Section:AddButton(opts)
     opts = opts or {}
     local text     = tostring(opts.Text or "Button")
     local callback = opts.Callback or function() end
-    local style    = (opts.Style or "filled"):lower()  -- filled | outlined
+    local style    = (opts.Style or "filled"):lower()
 
     local btn = new("TextButton", {
         Parent           = self.Content,
@@ -1219,7 +1133,7 @@ function Section:AddButton(opts)
     end
 
     btn.MouseButton1Click:Connect(function()
-        -- subtle press scale-down feedback
+
         local origSize = btn.Size
         tween(btn, 0.06, { Size = origSize - UDim2.fromOffset(0, 2) })
         task.delay(0.08, function() tween(btn, 0.12, { Size = origSize }) end)
@@ -1233,9 +1147,6 @@ function Section:AddButton(opts)
     return api
 end
 
-----------------------------------------------------------------------
--- TOGGLE (iOS smooth switch)
-----------------------------------------------------------------------
 function Section:AddToggle(opts)
     opts = opts or {}
     local text     = tostring(opts.Text or "Toggle")
@@ -1265,7 +1176,6 @@ function Section:AddToggle(opts)
         Text                   = text,
     })
 
-    -- Switch track
     local track = new("Frame", {
         Parent           = row,
         AnchorPoint      = Vector2.new(1, 0.5),
@@ -1280,12 +1190,12 @@ function Section:AddToggle(opts)
         AnchorPoint      = Vector2.new(0, 0.5),
         Position         = UDim2.new(0, 2, 0.5, 0),
         Size             = UDim2.fromOffset(18, 18),
-        BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+        BackgroundColor3 = Theme.Knob,
         BorderSizePixel  = 0,
         ZIndex           = 2,
     })
     corner(knob, R_PILL)
-    -- subtle knob shadow
+
     local knobShadow = new("ImageLabel", {
         Parent                 = knob,
         ZIndex                 = 1,
@@ -1334,9 +1244,6 @@ function Section:AddToggle(opts)
     return api
 end
 
-----------------------------------------------------------------------
--- SLIDER (thick pill, no thumb)
-----------------------------------------------------------------------
 function Section:AddSlider(opts)
     opts = opts or {}
     local text     = tostring(opts.Text or "Slider")
@@ -1380,7 +1287,6 @@ function Section:AddSlider(opts)
         Text                   = tostring(default) .. suffix,
     })
 
-    -- Thick track (pill, 14px)
     local TRACK_H = 14
     local track = new("Frame", {
         Parent           = frame,
@@ -1464,9 +1370,6 @@ function Section:AddSlider(opts)
     return api
 end
 
-----------------------------------------------------------------------
--- DROPDOWN (single, drawn chevron)
-----------------------------------------------------------------------
 function Section:AddDropdown(opts)
     opts = opts or {}
     local text     = tostring(opts.Text or "Dropdown")
@@ -1526,7 +1429,6 @@ function Section:AddDropdown(opts)
     })
     local chevron = drawChevron(arrowHolder, 12, Theme.SubText)
 
-    -- Popup list
     local list = new("Frame", {
         Parent           = getScreenGui(),
         Visible          = false,
@@ -1536,7 +1438,7 @@ function Section:AddDropdown(opts)
     })
     corner(list, R_MD)
     stroke(list, Theme.BorderHi, 1)
-    -- soft shadow
+
     new("ImageLabel", {
         Parent                 = list,
         ZIndex                 = 999,
@@ -1696,9 +1598,6 @@ function Section:AddDropdown(opts)
     return api
 end
 
-----------------------------------------------------------------------
--- MULTIDROPDOWN
-----------------------------------------------------------------------
 function Section:AddMultiDropdown(opts)
     opts = opts or {}
     local text     = tostring(opts.Text or "MultiDropdown")
@@ -1948,9 +1847,6 @@ function Section:AddMultiDropdown(opts)
     return api
 end
 
-----------------------------------------------------------------------
--- TEXTBOX (Material outlined)
-----------------------------------------------------------------------
 function Section:AddTextbox(opts)
     opts = opts or {}
     local text         = tostring(opts.Text or "Input")
@@ -2030,9 +1926,6 @@ function Section:AddTextbox(opts)
     return api
 end
 
-----------------------------------------------------------------------
--- KEYBIND
-----------------------------------------------------------------------
 function Section:AddKeybind(opts)
     opts = opts or {}
     local text      = tostring(opts.Text or "Keybind")
@@ -2175,10 +2068,6 @@ function Section:AddKeybind(opts)
     return api
 end
 
-----------------------------------------------------------------------
--- COLORPICKER (Hue + Lightness · 2 strips · draggable popup)
-----------------------------------------------------------------------
--- Convert HSL to RGB (saturation = 1 always for our 2-strip design)
 local function hslToColor(h, s, l)
     local function f(n)
         local k = (n + h * 12) % 12
@@ -2187,7 +2076,7 @@ local function hslToColor(h, s, l)
     end
     return Color3.new(f(0), f(8), f(4))
 end
--- Convert Color3 -> (h, l) given saturation = 1
+
 local function colorToHL(c)
     local mx = math.max(c.R, c.G, c.B)
     local mn = math.min(c.R, c.G, c.B)
@@ -2249,7 +2138,6 @@ function Section:AddColorpicker(opts)
     corner(swatch, R_PILL)
     local swStroke = stroke(swatch, Theme.BorderHi, 1)
 
-    -- Popup
     local POP_W   = 240
     local headerH = 30
     local stripH  = 16
@@ -2271,7 +2159,7 @@ function Section:AddColorpicker(opts)
     corner(popup, R_LG)
     stroke(popup, Theme.BorderHi, 1)
     pad(popup, 12, 12, 12, 12)
-    -- soft drop shadow
+
     new("ImageLabel", {
         Parent                 = popup,
         ZIndex                 = 1499,
@@ -2285,7 +2173,6 @@ function Section:AddColorpicker(opts)
         SliceCenter            = Rect.new(12, 12, 244, 244),
     })
 
-    -- HEADER (drag handle)
     local header = new("Frame", {
         Parent                 = popup,
         Size                   = UDim2.new(1, 0, 0, headerH),
@@ -2305,7 +2192,7 @@ function Section:AddColorpicker(opts)
         Text                   = text,
         ZIndex                 = 1502,
     })
-    -- close X (drawn cross)
+
     local closeBtn = new("TextButton", {
         Parent                 = header,
         AnchorPoint            = Vector2.new(1, 0.5),
@@ -2339,7 +2226,6 @@ function Section:AddColorpicker(opts)
 
     local nextY = headerH + 6
 
-    -- PREVIEW row (current color · big swatch)
     local preview = new("Frame", {
         Parent           = popup,
         Position         = UDim2.fromOffset(0, nextY),
@@ -2352,7 +2238,6 @@ function Section:AddColorpicker(opts)
     stroke(preview, Theme.BorderHi, 1)
     nextY = nextY + previewH + gap
 
-    -- HUE strip
     local hueBar = new("Frame", {
         Parent          = popup,
         Position        = UDim2.fromOffset(0, nextY),
@@ -2390,7 +2275,6 @@ function Section:AddColorpicker(opts)
     hueCStroke:SetAttribute("ObsPreserve", true)
     nextY = nextY + stripH + gap
 
-    -- LIGHTNESS strip (black → currentHue → white)
     local lightBar = new("Frame", {
         Parent           = popup,
         Position         = UDim2.fromOffset(0, nextY),
@@ -2418,7 +2302,6 @@ function Section:AddColorpicker(opts)
     lightCStroke:SetAttribute("ObsPreserve", true)
     nextY = nextY + stripH + gap
 
-    -- ALPHA strip (optional)
     local alphaBar, alphaCursor
     if hasAlpha then
         alphaBar = new("Frame", {
@@ -2452,7 +2335,6 @@ function Section:AddColorpicker(opts)
         nextY = nextY + stripH + gap
     end
 
-    -- HEX input
     local hex = new("TextBox", {
         Parent                 = popup,
         Position               = UDim2.fromOffset(0, nextY),
@@ -2471,16 +2353,11 @@ function Section:AddColorpicker(opts)
     corner(hex, R_MD)
     local hexStroke = stroke(hex, Theme.Border, 1)
 
-    ----------------------------------------------------------------
-    -- STATE
-    ----------------------------------------------------------------
     local h, l = colorToHL(default)
     local alpha = 1
-    local userMoved = false        -- once user drags via header, popup sticks
+    local userMoved = false
     local api = {}
 
-    -- Header drag: lets user freely position the popup; once dragged,
-    -- the auto-follow (which would snap it back to the swatch) is disabled.
     makeDraggable(popup, header, function() userMoved = true end)
 
     local function color() return hslToColor(h, 1, l) end
@@ -2493,7 +2370,7 @@ function Section:AddColorpicker(opts)
         local c = color()
         swatch.BackgroundColor3 = c
         preview.BackgroundColor3 = c
-        -- update lightness gradient: black → pure hue → white
+
         local pureHue = hslToColor(h, 1, 0.5)
         lightGrad.Color = ColorSequence.new({
             ColorSequenceKeypoint.new(0,   Color3.fromRGB(0, 0, 0)),
@@ -2517,7 +2394,7 @@ function Section:AddColorpicker(opts)
 
     function api:UpdatePosition()
         if not popup.Visible then return end
-        if userMoved then return end  -- user has placed the popup; keep it there
+        if userMoved then return end
         local absPos  = swatch.AbsolutePosition
         local absSize = swatch.AbsoluteSize
         local sg      = getScreenGui()
@@ -2539,7 +2416,7 @@ function Section:AddColorpicker(opts)
         end
         Library._activeColorpicker = api
         popup.Visible = true
-        userMoved = false  -- fresh open re-anchors near the swatch
+        userMoved = false
         api:UpdatePosition()
         tween(swStroke, 0.14, { Color = Theme.Accent })
     end
@@ -2554,9 +2431,6 @@ function Section:AddColorpicker(opts)
     end)
     closeBtn.MouseButton1Click:Connect(function() api:Close() end)
 
-    ----------------------------------------------------------------
-    -- STRIP DRAG HELPERS
-    ----------------------------------------------------------------
     local function makeStripDrag(strip, onPct)
         local dragging = false
         local function update(input)
@@ -2593,7 +2467,6 @@ function Section:AddColorpicker(opts)
         makeStripDrag(alphaBar, function(pct) alpha = pct; api:Set(nil, alpha) end)
     end
 
-    -- Hex
     hex.Focused:Connect(function() tween(hexStroke, 0.14, { Color = Theme.Accent }) end)
     hex.FocusLost:Connect(function()
         tween(hexStroke, 0.14, { Color = Theme.Border })
@@ -2616,9 +2489,6 @@ function Section:AddColorpicker(opts)
     return api
 end
 
-----------------------------------------------------------------------
--- NOTIFICATIONS (compact + smart overflow close)
-----------------------------------------------------------------------
 local NOTIFY_W   = 240
 local NOTIFY_MAX = 4
 Library._notifications = {}
@@ -2650,8 +2520,6 @@ function Library:Notify(opts)
 
     local holder = getNotifyHolder()
 
-    -- SLOT: layout-managed wrapper. Owns the height the layout reads.
-    -- We animate this for the smooth height-collapse on close.
     local slot = new("Frame", {
         Parent                 = holder,
         Name                   = "Slot",
@@ -2662,8 +2530,6 @@ function Library:Notify(opts)
         ZIndex                 = 5001,
     })
 
-    -- CARD: the visual; positioned freely inside `slot` so we can tween
-    -- its X-offset for slide-in / slide-out without UIListLayout overriding.
     local card = new("Frame", {
         Parent           = slot,
         AnchorPoint      = Vector2.new(0, 0),
@@ -2729,7 +2595,6 @@ function Library:Notify(opts)
         })
     end
 
-    -- Progress bar (bottom)
     local bar = new("Frame", {
         Parent           = card,
         AnchorPoint      = Vector2.new(0, 1),
@@ -2772,21 +2637,17 @@ function Library:Notify(opts)
     end
 
     local entry = { Card = card, Slot = slot, Closed = false }
-    -- `fast` => overflow-forced close: faster duration so the queue tightens
+
     function entry:Close(fast)
         if self.Closed then return end
         self.Closed = true
 
-        -- Remove from queue immediately so further overflow logic doesn't
-        -- try to close us again.
         for i, e in ipairs(Library._notifications) do
             if e == self then table.remove(Library._notifications, i) break end
         end
 
         local dur = fast and 0.22 or 0.3
 
-        -- 1) Collapse slot height to 0 — UIListLayout will smoothly slide
-        --    the remaining cards up to close the gap.
         local h = slot.AbsoluteSize.Y
         if h > 0 then
             slot.AutomaticSize = Enum.AutomaticSize.None
@@ -2794,10 +2655,10 @@ function Library:Notify(opts)
             tween(slot, dur, { Size = UDim2.new(1, 0, 0, 0) },
                 Enum.EasingStyle.Quart, Enum.EasingDirection.InOut)
         end
-        -- 2) Slide the card horizontally off the right edge of the slot.
+
         tween(card, dur * 0.9, { Position = UDim2.fromOffset(60, 0) },
             Enum.EasingStyle.Quart, Enum.EasingDirection.In)
-        -- 3) Fade out all visual layers in parallel.
+
         tweenTrans(1, dur * 0.8, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
 
         task.delay(dur + 0.02, function()
@@ -2805,8 +2666,6 @@ function Library:Notify(opts)
         end)
     end
 
-    -- ENTRY ANIMATION: slot grows via AutomaticSize, card slides in from
-    -- right (~40px) and fades in.
     setTrans(1)
     card.Position = UDim2.fromOffset(40, 0)
     tween(card, 0.32, { Position = UDim2.fromOffset(0, 0) },
@@ -2815,13 +2674,13 @@ function Library:Notify(opts)
     tween(bar, duration, { Size = UDim2.new(0, 0, 0, 2) }, Enum.EasingStyle.Linear)
 
     table.insert(Library._notifications, entry)
-    -- Smart overflow: close oldest fast if too many
+
     while #Library._notifications > NOTIFY_MAX do
         local oldest = Library._notifications[1]
         if oldest and not oldest.Closed then
             oldest:Close(true)
         else
-            -- defensive: drop stuck entry
+
             table.remove(Library._notifications, 1)
         end
     end
