@@ -5,11 +5,15 @@ Library.FlagCallbacks      = {}
 Library.Connections        = {}
 Library.Windows            = {}
 Library.Open               = true
-Library.Version            = "3.1.1"
+Library.Version            = "1.0.0"
 Library.Name               = "Obscura"
 Library._activeDropdown    = nil
 Library._activeColorpicker = nil
 Library._listeningKeybind  = nil
+Library.UnloadCallbacks    = {}
+Library.FlagBindings       = {}
+Library.ConfigStore        = {}
+Library._configFolder      = "Obscura"
 
 local UIS         = game:GetService("UserInputService")
 local TS          = game:GetService("TweenService")
@@ -206,18 +210,6 @@ local THEMED_PROPS = {
     ScrollBarImageColor3= true,
     Color               = true,
 }
-
-local function _findThemeKey(c)
-    if typeof(c) ~= "Color3" then return nil end
-    for k, v in pairs(Theme) do
-        if math.abs(c.R - v.R) < 0.001
-        and math.abs(c.G - v.G) < 0.001
-        and math.abs(c.B - v.B) < 0.001 then
-            return k
-        end
-    end
-    return nil
-end
 
 local function new(class, props)
     local inst = Instance.new(class)
@@ -560,6 +552,110 @@ function Library:OnFlag(flag, fn)
     table.insert(Library.FlagCallbacks[flag], fn)
 end
 
+function Library:BindFlag(flag, api)
+    if not flag or not api then return end
+    Library.FlagBindings[flag] = api
+end
+
+local function _ensureConfigFolder()
+    if not isfolder then return false end
+    local folder = Library._configFolder
+    if not isfolder(folder) then
+        pcall(makefolder, folder)
+    end
+    return isfolder(folder)
+end
+
+function Library:SaveConfig(name)
+    name = tostring(name or "default")
+    local data = {}
+    for flag, value in pairs(Library.Flags) do
+        local t = typeof(value)
+        if t == "string" or t == "number" or t == "boolean" then
+            data[flag] = value
+        elseif t == "Color3" then
+            data[flag] = { _type = "Color3", R = value.R, G = value.G, B = value.B }
+        elseif t == "EnumItem" then
+            data[flag] = { _type = "EnumItem", EnumType = tostring(value.EnumType), Name = value.Name }
+        elseif t == "table" or type(value) == "table" then
+            data[flag] = value
+        end
+    end
+    local json = HttpService:JSONEncode(data)
+    Library.ConfigStore[name] = json
+    if _ensureConfigFolder() and writefile then
+        pcall(writefile, Library._configFolder .. "/" .. name .. ".json", json)
+    end
+    return true
+end
+
+function Library:LoadConfig(name)
+    name = tostring(name or "default")
+    local json = Library.ConfigStore[name]
+    if not json and _ensureConfigFolder() and readfile and isfile then
+        local path = Library._configFolder .. "/" .. name .. ".json"
+        if isfile(path) then
+            local ok, content = pcall(readfile, path)
+            if ok then json = content end
+        end
+    end
+    if not json then return false end
+    local ok, data = pcall(HttpService.JSONDecode, HttpService, json)
+    if not ok or type(data) ~= "table" then return false end
+    for flag, value in pairs(data) do
+        if type(value) == "table" and value._type == "Color3" then
+            value = Color3.new(value.R, value.G, value.B)
+        elseif type(value) == "table" and value._type == "EnumItem" then
+            pcall(function() value = Enum[value.EnumType][value.Name] end)
+        end
+        local binding = Library.FlagBindings[flag]
+        if binding and binding.Set then
+            pcall(binding.Set, binding, value)
+        else
+            Library:SetFlag(flag, value)
+        end
+    end
+    return true
+end
+
+function Library:ListConfigs()
+    local configs = {}
+    for name in pairs(Library.ConfigStore) do
+        table.insert(configs, name)
+    end
+    if _ensureConfigFolder() and listfiles then
+        local ok, files = pcall(listfiles, Library._configFolder)
+        if ok then
+            for _, path in ipairs(files) do
+                local n = path:match("([^/\\]+)%.json$")
+                if n then
+                    local found = false
+                    for _, existing in ipairs(configs) do
+                        if existing == n then found = true break end
+                    end
+                    if not found then table.insert(configs, n) end
+                end
+            end
+        end
+    end
+    table.sort(configs)
+    return configs
+end
+
+function Library:DeleteConfig(name)
+    name = tostring(name or "default")
+    Library.ConfigStore[name] = nil
+    if _ensureConfigFolder() and delfile and isfile then
+        local path = Library._configFolder .. "/" .. name .. ".json"
+        if isfile(path) then pcall(delfile, path) end
+    end
+    return true
+end
+
+function Library:SetConfigFolder(folder)
+    Library._configFolder = tostring(folder or "Obscura")
+end
+
 function Library:Toggle(state)
     if state == nil then state = not Library.Open end
     Library.Open = state
@@ -574,7 +670,16 @@ function Library:Toggle(state)
     end
 end
 
+function Library:OnUnload(fn)
+    if type(fn) == "function" then
+        table.insert(Library.UnloadCallbacks, fn)
+    end
+end
+
 function Library:Destroy()
+    for _, fn in ipairs(Library.UnloadCallbacks) do
+        pcall(fn)
+    end
     for _, c in ipairs(Library.Connections) do
         pcall(function() c:Disconnect() end)
     end
@@ -582,6 +687,7 @@ function Library:Destroy()
     if Library.ScreenGui then pcall(function() Library.ScreenGui:Destroy() end) end
     Library.ScreenGui = nil
     Library.Windows, Library.Flags, Library.FlagCallbacks = {}, {}, {}
+    Library.UnloadCallbacks, Library.FlagBindings, Library.ConfigStore = {}, {}, {}
     Library.MobileButton, Library.NotifyHolder = nil, nil
     Library._activeDropdown, Library._activeColorpicker, Library._listeningKeybind = nil, nil, nil
     Library._notifications = {}
@@ -1313,6 +1419,7 @@ function Section:AddToggle(opts)
 
     row.MouseButton1Click:Connect(function() api:Toggle() end)
 
+    if flag then Library:BindFlag(flag, api) end
     api:Set(default, true)
     render(false)
     return api
@@ -1666,6 +1773,7 @@ function Section:AddDropdown(opts)
     api.Button = btn
     api.List   = list
 
+    if flag then Library:BindFlag(flag, api) end
     api:Refresh(options, true)
     if default ~= nil then api:Set(default, true) end
     render()
@@ -1916,6 +2024,7 @@ function Section:AddMultiDropdown(opts)
     api.Button = btn
     api.List   = list
 
+    if flag then Library:BindFlag(flag, api) end
     api:Refresh(options)
     api:Set(default, true)
     return api
@@ -1996,6 +2105,7 @@ function Section:AddTextbox(opts)
         task.spawn(callback, input.Text, enter)
     end)
 
+    if flag then Library:BindFlag(flag, api) end
     if default ~= "" and flag then Library:SetFlag(flag, default) end
     return api
 end
@@ -2138,6 +2248,7 @@ function Section:AddKeybind(opts)
         end
     end))
 
+    if flag then Library:BindFlag(flag, api) end
     if default and flag then Library:SetFlag(flag, default) end
     return api
 end
@@ -2559,6 +2670,7 @@ function Section:AddColorpicker(opts)
 
     api.Button = swatch
     api.Popup  = popup
+    if flag then Library:BindFlag(flag, api) end
     api:Set(default, 1, true)
     return api
 end
