@@ -162,14 +162,27 @@ function Library:SetTheme(name, instant)
         end
         local current
         local ok = pcall(function() current = inst[prop] end)
-        if ok and current then
-            local newC = remapByColor(current)
-            if newC then
-                setOrTween(inst, prop, newC)
-                local fk = _findThemeKey(newC)
-                if fk then
-                    pcall(function() inst:SetAttribute("ObsT_" .. prop, fk) end)
+        if ok and current and typeof(current) == "Color3" then
+            -- Try exact match against old theme first
+            for k, oldC in pairs(old) do
+                if colorEq(current, oldC) then
+                    setOrTween(inst, prop, target[k])
+                    pcall(function() inst:SetAttribute("ObsT_" .. prop, k) end)
+                    return
                 end
+            end
+            -- Fallback: broader fuzzy match (threshold 0.35)
+            local bestKey, bestDist = nil, 0.35
+            for k, oldC in pairs(old) do
+                local d = colorDist(current, oldC)
+                if d < bestDist then
+                    bestKey  = k
+                    bestDist = d
+                end
+            end
+            if bestKey then
+                setOrTween(inst, prop, target[bestKey])
+                pcall(function() inst:SetAttribute("ObsT_" .. prop, bestKey) end)
             end
         end
     end
@@ -805,26 +818,94 @@ function Library:CreateWindow(opts)
 
     local sg = getScreenGui()
 
-    -- Watermark (top-left, developer sets name via opts.Watermark)
-    local wmText = opts.Watermark
-    local watermark
-    if wmText and wmText ~= "" then
-        watermark = new("TextLabel", {
-            Parent                 = sg,
-            Name                   = "Watermark",
-            AnchorPoint            = Vector2.new(0, 0),
-            Position               = UDim2.new(0, 14, 0, 10),
-            Size                   = UDim2.fromOffset(300, 18),
-            BackgroundTransparency = 1,
-            Font                   = FONT_SB,
-            TextSize               = TEXT_SM,
-            TextColor3             = Theme.DimText,
-            TextXAlignment         = Enum.TextXAlignment.Left,
-            Text                   = wmText,
-            TextTransparency       = 0.45,
-            ZIndex                 = 999,
+    -- Watermark (top-right, styled frame with live stats)
+    local wmOpts = opts.Watermark or {}
+    if type(wmOpts) == "string" then wmOpts = { Name = wmOpts } end
+    local wmName = wmOpts.Name or ""
+    local wmShowFPS     = wmOpts.FPS ~= false
+    local wmShowPlayers = wmOpts.Players == true
+    local wmShowTime    = wmOpts.Time ~= false
+
+    local wmFrame, wmLabels
+    if wmName ~= "" then
+        wmFrame = new("Frame", {
+            Parent           = sg,
+            Name             = "Watermark",
+            AnchorPoint      = Vector2.new(1, 0),
+            Position         = UDim2.new(1, -14, 0, 10),
+            Size             = UDim2.fromOffset(0, 26),
+            AutomaticSize    = Enum.AutomaticSize.X,
+            BackgroundColor3 = Theme.Bg2,
+            BorderSizePixel  = 0,
+            ZIndex           = 999,
         })
-        bindTheme(watermark, "TextColor3", "DimText")
+        corner(wmFrame, R_MD)
+        stroke(wmFrame, Theme.Border, 1)
+        pad(wmFrame, 10, 0, 10, 0)
+        listLayout(wmFrame, Enum.FillDirection.Horizontal, 8, nil, Enum.VerticalAlignment.Center)
+
+        local function wmLabel(text, key)
+            local l = new("TextLabel", {
+                Parent                 = wmFrame,
+                BackgroundTransparency = 1,
+                Size                   = UDim2.fromOffset(0, 26),
+                AutomaticSize          = Enum.AutomaticSize.X,
+                Font                   = FONT_M,
+                TextSize               = TEXT_SM,
+                TextColor3             = Theme.SubText,
+                Text                   = text,
+                ZIndex                 = 1000,
+            })
+            bindTheme(l, "TextColor3", key or "SubText")
+            return l
+        end
+
+        local function wmSep()
+            local s = new("Frame", {
+                Parent           = wmFrame,
+                Size             = UDim2.fromOffset(1, 12),
+                BackgroundColor3 = Theme.Border,
+                BorderSizePixel  = 0,
+                ZIndex           = 1000,
+            })
+            bindTheme(s, "BackgroundColor3", "Border")
+            return s
+        end
+
+        wmLabels = {}
+        wmLabels.name = wmLabel(wmName, "Text")
+        if wmShowFPS then
+            wmSep()
+            wmLabels.fps = wmLabel("-- FPS", "SubText")
+        end
+        if wmShowPlayers then
+            wmSep()
+            wmLabels.players = wmLabel("0 players", "SubText")
+        end
+        if wmShowTime then
+            wmSep()
+            wmLabels.time = wmLabel("00:00", "SubText")
+        end
+
+        -- Live update loop
+        local fpsAccum, fpsCount = 0, 0
+        register(RS.Heartbeat:Connect(function(dt)
+            if not wmFrame or not wmFrame.Parent then return end
+            if wmLabels.fps then
+                fpsAccum = fpsAccum + dt
+                fpsCount = fpsCount + 1
+                if fpsAccum >= 0.5 then
+                    wmLabels.fps.Text = math.floor(fpsCount / fpsAccum) .. " FPS"
+                    fpsAccum, fpsCount = 0, 0
+                end
+            end
+            if wmLabels.players then
+                wmLabels.players.Text = #Players:GetPlayers() .. " players"
+            end
+            if wmLabels.time then
+                wmLabels.time.Text = os.date("%H:%M", os.time())
+            end
+        end))
     end
 
     local shadow = new("ImageLabel", {
@@ -1415,8 +1496,10 @@ function Section:AddToggle(opts)
     local api = {}
 
     local function render(animate)
-        local trackColor = state and Theme.Accent or Theme.Track
-        local knobColor  = state and Theme.AccentText or Theme.Knob
+        local trackKey   = state and "Accent" or "Track"
+        local knobKey    = state and "AccentText" or "Knob"
+        local trackColor = Theme[trackKey]
+        local knobColor  = Theme[knobKey]
         local knobPos    = state and UDim2.new(1, -20, 0.5, 0) or UDim2.new(0, 2, 0.5, 0)
         if animate then
             tween(track, 0.18, { BackgroundColor3 = trackColor })
@@ -1427,6 +1510,8 @@ function Section:AddToggle(opts)
             knob.BackgroundColor3  = knobColor
             knob.Position          = knobPos
         end
+        pcall(function() track:SetAttribute("ObsT_BackgroundColor3", trackKey) end)
+        pcall(function() knob:SetAttribute("ObsT_BackgroundColor3", knobKey) end)
     end
 
     function api:Set(v, silent)
