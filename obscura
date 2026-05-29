@@ -805,6 +805,28 @@ function Library:CreateWindow(opts)
 
     local sg = getScreenGui()
 
+    -- Watermark (top-left, developer sets name via opts.Watermark)
+    local wmText = opts.Watermark
+    local watermark
+    if wmText and wmText ~= "" then
+        watermark = new("TextLabel", {
+            Parent                 = sg,
+            Name                   = "Watermark",
+            AnchorPoint            = Vector2.new(0, 0),
+            Position               = UDim2.new(0, 14, 0, 10),
+            Size                   = UDim2.fromOffset(300, 18),
+            BackgroundTransparency = 1,
+            Font                   = FONT_SB,
+            TextSize               = TEXT_SM,
+            TextColor3             = Theme.DimText,
+            TextXAlignment         = Enum.TextXAlignment.Left,
+            Text                   = wmText,
+            TextTransparency       = 0.45,
+            ZIndex                 = 999,
+        })
+        bindTheme(watermark, "TextColor3", "DimText")
+    end
+
     local shadow = new("ImageLabel", {
         Parent                 = sg,
         AnchorPoint            = Vector2.new(0.5, 0.5),
@@ -1394,13 +1416,15 @@ function Section:AddToggle(opts)
 
     local function render(animate)
         local trackColor = state and Theme.Accent or Theme.Track
+        local knobColor  = state and Theme.AccentText or Theme.Knob
         local knobPos    = state and UDim2.new(1, -20, 0.5, 0) or UDim2.new(0, 2, 0.5, 0)
         if animate then
             tween(track, 0.18, { BackgroundColor3 = trackColor })
-            tween(knob,  0.22, { Position = knobPos },
+            tween(knob,  0.22, { Position = knobPos, BackgroundColor3 = knobColor },
                 Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
         else
             track.BackgroundColor3 = trackColor
+            knob.BackgroundColor3  = knobColor
             knob.Position          = knobPos
         end
     end
