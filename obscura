@@ -1132,6 +1132,24 @@ function Library:CreateWindow(opts)
         end
 
         wmLabels = {}
+        local wmIconName = wmOpts.Icon
+        if wmIconName and type(wmIconName) == "string" then
+            local wmImage, wmRectOff, wmRectSize = getIcon(wmIconName)
+            if wmImage then
+                new("ImageLabel", {
+                    Parent                 = wmFrame,
+                    BackgroundTransparency = 1,
+                    Size                   = UDim2.fromOffset(14, 14),
+                    Image                  = wmImage,
+                    ImageRectOffset        = wmRectOff,
+                    ImageRectSize          = wmRectSize,
+                    ImageColor3            = Theme.Text,
+                    ZIndex                 = 1000,
+                    LayoutOrder            = 0,
+                    ScaleType              = Enum.ScaleType.Crop,
+                })
+            end
+        end
         wmLabels.name = wmLabel(wmName, "Text")
         if wmShowFPS then
             wmSep()
@@ -1496,16 +1514,22 @@ function Window:CreateTab(name, iconAsset)
         Enum.HorizontalAlignment.Center, Enum.VerticalAlignment.Center)
 
     local iconImg
-    if iconAsset then
+    local iconName = type(iconAsset) == "table" and iconAsset.Icon or iconAsset
+    if iconName then
+        local image, rectOffset, rectSize = getIcon(iconName)
+        if not image then image = iconName end
         iconImg = new("ImageLabel", {
             Parent                 = btn,
             Size                   = UDim2.fromOffset(20, 20),
             BackgroundTransparency = 1,
-            Image                  = iconAsset,
+            Image                  = image,
+            ImageRectOffset        = rectOffset or Vector2.new(0, 0),
+            ImageRectSize          = rectSize or Vector2.new(0, 0),
             ImageColor3            = Theme.SubText,
             LayoutOrder            = 1,
-            ScaleType              = Enum.ScaleType.Fit,
+            ScaleType              = rectOffset and Enum.ScaleType.Crop or Enum.ScaleType.Fit,
         })
+        bindTheme(iconImg, "ImageColor3", "SubText")
     end
 
     local label = new("TextLabel", {
