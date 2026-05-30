@@ -23,10 +23,18 @@ local Players     = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
 local LP          = Players.LocalPlayer
 
-local Icons = loadstring(game:HttpGet("https://raw.githubusercontent.com/AWLOID/Obscura/refs/heads/main/icons.lua"))()
+local Icons
+do
+    local ok, result = pcall(function()
+        return loadstring(game:HttpGet("https://raw.githubusercontent.com/AWLOID/Obscura/refs/heads/main/icons.lua"))()
+    end)
+    Icons = ok and result or {}
+end
 
 local function getIcon(name)
-    local data = Icons["48px"][name]
+    local sheet = Icons and Icons["48px"]
+    if not sheet then return nil, nil, nil end
+    local data = sheet[name]
     if not data then return nil, nil, nil end
     return "rbxassetid://" .. data[1],
            Vector2.new(data[3][1], data[3][2]),
@@ -2231,7 +2239,11 @@ function Section:AddDropdown(opts)
         local absSize = btn.AbsoluteSize
         local count   = #options
         local listH   = math.min(count * 30 + 12, 220)
-        list.Position = UDim2.fromOffset(absPos.X, absPos.Y + absSize.Y + 6)
+        local screenH = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize.Y or 600
+        local yBelow  = absPos.Y + absSize.Y + 6
+        local yAbove  = absPos.Y - listH - 6
+        local yFinal  = (yBelow + listH > screenH and yAbove >= 0) and yAbove or yBelow
+        list.Position = UDim2.fromOffset(absPos.X, yFinal)
         list.Size     = UDim2.fromOffset(absSize.X, listH)
     end
 
@@ -2500,7 +2512,11 @@ function Section:AddMultiDropdown(opts)
         local absSize = btn.AbsoluteSize
         local count   = #options
         local listH   = math.min(count * 30 + 12, 220)
-        list.Position = UDim2.fromOffset(absPos.X, absPos.Y + absSize.Y + 6)
+        local screenH = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize.Y or 600
+        local yBelow  = absPos.Y + absSize.Y + 6
+        local yAbove  = absPos.Y - listH - 6
+        local yFinal  = (yBelow + listH > screenH and yAbove >= 0) and yAbove or yBelow
+        list.Position = UDim2.fromOffset(absPos.X, yFinal)
         list.Size     = UDim2.fromOffset(absSize.X, listH)
     end
 
@@ -3653,7 +3669,6 @@ function Library:CreateKeySystem(cfg)
         Parent = card,
     })
     new("UICorner", { CornerRadius = UDim.new(0, 8), Parent = box })
-    new("UIStroke", { Color = T.Border, Thickness = 1, Parent = box })
 
     local btn = new("TextButton", {
         Size = UDim2.new(1, -40, 0, 36),
