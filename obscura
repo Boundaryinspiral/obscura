@@ -3574,4 +3574,132 @@ function Library:Notify(opts)
     return card
 end
 
+----------------------------------------------------------------
+-- KEY SYSTEM (built-in, styled to match menu theme)
+----------------------------------------------------------------
+function Library:CreateKeySystem(cfg)
+    cfg = cfg or {}
+    local title    = cfg.Title or self.Name
+    local subtitle = cfg.Subtitle or "Enter your key"
+    local note     = cfg.Note or ""
+    local keys     = cfg.Keys or {}
+    local saveKey  = cfg.SaveKey or false
+    local keyFile  = cfg.KeyFile or (self._configFolder .. "/key.txt")
+
+    if saveKey and isfile and isfile(keyFile) then
+        local saved = readfile(keyFile)
+        for _, k in ipairs(keys) do
+            if saved == k then return true end
+        end
+    end
+
+    local T = self.Theme
+    local sg = getScreenGui()
+
+    local overlay = new("Frame", {
+        Size = UDim2.new(1, 0, 1, 0),
+        BackgroundColor3 = T.Shadow,
+        BackgroundTransparency = 0.35,
+        ZIndex = 9999,
+        Parent = sg,
+    })
+
+    local card = new("Frame", {
+        Size = UDim2.fromOffset(340, 230),
+        Position = UDim2.new(0.5, -170, 0.5, -115),
+        BackgroundColor3 = T.Bg,
+        ZIndex = 10000,
+        Parent = overlay,
+    })
+    new("UICorner", { CornerRadius = UDim.new(0, 12), Parent = card })
+    new("UIStroke", { Color = T.Border, Thickness = 1, Parent = card })
+
+    new("TextLabel", {
+        Size = UDim2.new(1, 0, 0, 36),
+        Position = UDim2.fromOffset(0, 18),
+        BackgroundTransparency = 1,
+        Text = title,
+        TextColor3 = T.Text,
+        Font = Enum.Font.GothamBold,
+        TextSize = 18,
+        ZIndex = 10001,
+        Parent = card,
+    })
+
+    new("TextLabel", {
+        Size = UDim2.new(1, 0, 0, 20),
+        Position = UDim2.fromOffset(0, 54),
+        BackgroundTransparency = 1,
+        Text = subtitle,
+        TextColor3 = T.SubText,
+        Font = Enum.Font.Gotham,
+        TextSize = 13,
+        ZIndex = 10001,
+        Parent = card,
+    })
+
+    local box = new("TextBox", {
+        Size = UDim2.new(1, -40, 0, 36),
+        Position = UDim2.fromOffset(20, 88),
+        BackgroundColor3 = T.Bg2,
+        PlaceholderText = "Key...",
+        Text = "",
+        TextColor3 = T.Text,
+        PlaceholderColor3 = T.DimText,
+        Font = Enum.Font.GothamMedium,
+        TextSize = 14,
+        ClearTextOnFocus = false,
+        ZIndex = 10001,
+        Parent = card,
+    })
+    new("UICorner", { CornerRadius = UDim.new(0, 8), Parent = box })
+    new("UIStroke", { Color = T.Border, Thickness = 1, Parent = box })
+
+    local btn = new("TextButton", {
+        Size = UDim2.new(1, -40, 0, 36),
+        Position = UDim2.fromOffset(20, 138),
+        BackgroundColor3 = T.Accent,
+        Text = "Submit",
+        TextColor3 = T.AccentText,
+        Font = Enum.Font.GothamBold,
+        TextSize = 14,
+        ZIndex = 10001,
+        Parent = card,
+    })
+    new("UICorner", { CornerRadius = UDim.new(0, 8), Parent = btn })
+
+    if note ~= "" then
+        new("TextLabel", {
+            Size = UDim2.new(1, 0, 0, 18),
+            Position = UDim2.fromOffset(0, 184),
+            BackgroundTransparency = 1,
+            Text = note,
+            TextColor3 = T.DimText,
+            Font = Enum.Font.Gotham,
+            TextSize = 11,
+            ZIndex = 10001,
+            Parent = card,
+        })
+    end
+
+    local passed = false
+    btn.MouseButton1Click:Connect(function()
+        local input = box.Text
+        for _, k in ipairs(keys) do
+            if input == k then
+                passed = true
+                if saveKey and writefile then writefile(keyFile, input) end
+                overlay:Destroy()
+                return
+            end
+        end
+        box.Text = ""
+        box.PlaceholderText = "Invalid key"
+        box.PlaceholderColor3 = Color3.fromRGB(220, 60, 60)
+    end)
+
+    repeat task.wait() until passed
+    return true
+end
+
 return Library
