@@ -23,6 +23,16 @@ local Players     = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
 local LP          = Players.LocalPlayer
 
+local Icons = loadstring(game:HttpGet("https://raw.githubusercontent.com/AWLOID/Obscura/refs/heads/main/icons.lua"))()
+
+local function getIcon(name)
+    local data = Icons["48px"][name]
+    if not data then return nil, nil, nil end
+    return "rbxassetid://" .. data[1],
+           Vector2.new(data[3][1], data[3][2]),
+           Vector2.new(data[2][1], data[2][2])
+end
+
 local ThemeLight = {
     Bg          = Color3.fromRGB(250, 248, 246),
     Bg2         = Color3.fromRGB(243, 240, 237),
@@ -59,7 +69,24 @@ local ThemeDark = {
 local Theme = {}
 for k, v in pairs(ThemeLight) do Theme[k] = v end
 Library.Theme       = Theme
-Library.Themes      = { light = ThemeLight, dark = ThemeDark }
+local ThemeMidnight = {
+    Bg          = Color3.fromRGB(16, 16, 22),
+    Bg2         = Color3.fromRGB(22, 22, 30),
+    Bg3         = Color3.fromRGB(32, 32, 42),
+    Hover       = Color3.fromRGB(42, 42, 54),
+    Border      = Color3.fromRGB(38, 38, 50),
+    BorderHi    = Color3.fromRGB(70, 68, 90),
+    Text        = Color3.fromRGB(220, 218, 230),
+    SubText     = Color3.fromRGB(140, 138, 160),
+    DimText     = Color3.fromRGB(90, 88, 110),
+    Accent      = Color3.fromRGB(130, 100, 220),
+    AccentText  = Color3.fromRGB(240, 238, 250),
+    Track       = Color3.fromRGB(50, 48, 65),
+    Shadow      = Color3.fromRGB(4, 4, 6),
+    Knob        = Color3.fromRGB(235, 232, 245),
+}
+
+Library.Themes      = { light = ThemeLight, dark = ThemeDark, midnight = ThemeMidnight }
 Library.CurrentTheme = "light"
 
 local function colorEq(a, b)
@@ -520,8 +547,7 @@ local function getScreenGui()
         elseif protect_gui then protect_gui(sg); sg.Parent = CoreGui; protected = true end
     end)
     if not protected then
-        local ok = pcall(function() sg.Parent = CoreGui end)
-        if not ok then sg.Parent = LP:WaitForChild("PlayerGui") end
+        pcall(function() sg.Parent = CoreGui end)
     end
     Library.ScreenGui = sg
     return sg
@@ -802,6 +828,231 @@ local function attachHover(btn, normal, hover, strokeInst)
         tween(btn, 0.14, { BackgroundColor3 = _resolveColor(normal) or normal })
         if strokeInst then tween(strokeInst, 0.14, { Color = Theme.Border }) end
     end)
+end
+
+-- Key System
+function Library:CreateKeySystem(opts)
+    opts = opts or {}
+    local keyTitle    = opts.Title or "Key System"
+    local subtitle    = opts.Subtitle or "Enter your key to continue"
+    local getKeyUrl   = opts.GetKeyUrl or ""
+    local checkKey    = opts.CheckKey or function(key) return false end
+    local savedKey    = opts.SaveKey ~= false
+    local keyFileName = opts.KeyFile or "Obscura_Key.txt"
+
+    local sg = getScreenGui()
+
+    local overlay = new("Frame", {
+        Parent           = sg,
+        Size             = UDim2.fromScale(1, 1),
+        BackgroundColor3 = Color3.fromRGB(0, 0, 0),
+        BackgroundTransparency = 0.4,
+        BorderSizePixel  = 0,
+        ZIndex           = 9000,
+    })
+
+    local box = new("Frame", {
+        Parent           = overlay,
+        AnchorPoint      = Vector2.new(0.5, 0.5),
+        Position         = UDim2.fromScale(0.5, 0.5),
+        Size             = UDim2.fromOffset(340, 0),
+        AutomaticSize    = Enum.AutomaticSize.Y,
+        BackgroundColor3 = Theme.Bg,
+        BorderSizePixel  = 0,
+        ZIndex           = 9001,
+    })
+    corner(box, R_XL)
+    stroke(box, Theme.Border, 1)
+    pad(box, 24, 24, 24, 24)
+    listLayout(box, Enum.FillDirection.Vertical, 12,
+        Enum.HorizontalAlignment.Center)
+
+    new("ImageLabel", {
+        Parent                 = box,
+        ZIndex                 = 9000,
+        Size                   = UDim2.new(1, 50, 1, 50),
+        Position               = UDim2.fromOffset(-25, -20),
+        BackgroundTransparency = 1,
+        Image                  = "rbxasset://textures/ui/Controls/DropShadow.png",
+        ImageColor3            = Theme.Shadow,
+        ImageTransparency      = 0.82,
+        ScaleType              = Enum.ScaleType.Slice,
+        SliceCenter            = Rect.new(12, 12, 244, 244),
+    })
+
+    new("TextLabel", {
+        Parent                 = box,
+        Size                   = UDim2.new(1, 0, 0, 22),
+        BackgroundTransparency = 1,
+        Font                   = FONT_SB,
+        TextSize               = TEXT_LG,
+        TextColor3             = Theme.Text,
+        Text                   = keyTitle,
+        TextXAlignment         = Enum.TextXAlignment.Center,
+        ZIndex                 = 9002,
+    })
+
+    new("TextLabel", {
+        Parent                 = box,
+        Size                   = UDim2.new(1, 0, 0, 14),
+        BackgroundTransparency = 1,
+        Font                   = FONT,
+        TextSize               = TEXT_SM,
+        TextColor3             = Theme.SubText,
+        Text                   = subtitle,
+        TextXAlignment         = Enum.TextXAlignment.Center,
+        ZIndex                 = 9002,
+    })
+
+    local inputBox = new("Frame", {
+        Parent           = box,
+        Size             = UDim2.new(1, 0, 0, 36),
+        BackgroundColor3 = Theme.Bg2,
+        BorderSizePixel  = 0,
+        ZIndex           = 9002,
+    })
+    corner(inputBox, R_MD)
+    local inputStroke = stroke(inputBox, Theme.Border, 1)
+
+    local keyInput = new("TextBox", {
+        Parent                 = inputBox,
+        BackgroundTransparency = 1,
+        Position               = UDim2.fromOffset(12, 0),
+        Size                   = UDim2.new(1, -24, 1, 0),
+        Font                   = FONT,
+        TextSize               = TEXT_MD,
+        TextColor3             = Theme.Text,
+        PlaceholderColor3      = Theme.DimText,
+        PlaceholderText        = "Enter key...",
+        Text                   = "",
+        TextXAlignment         = Enum.TextXAlignment.Left,
+        ClearTextOnFocus       = false,
+        ZIndex                 = 9002,
+    })
+
+    keyInput.Focused:Connect(function()
+        tween(inputStroke, 0.14, { Color = Theme.Accent })
+    end)
+    keyInput.FocusLost:Connect(function()
+        tween(inputStroke, 0.14, { Color = Theme.Border })
+    end)
+
+    local statusLabel = new("TextLabel", {
+        Parent                 = box,
+        Size                   = UDim2.new(1, 0, 0, 14),
+        BackgroundTransparency = 1,
+        Font                   = FONT,
+        TextSize               = TEXT_SM,
+        TextColor3             = Theme.DimText,
+        Text                   = "",
+        TextXAlignment         = Enum.TextXAlignment.Center,
+        ZIndex                 = 9002,
+    })
+
+    local btnRow = new("Frame", {
+        Parent                 = box,
+        Size                   = UDim2.new(1, 0, 0, 36),
+        BackgroundTransparency = 1,
+        ZIndex                 = 9002,
+    })
+    listLayout(btnRow, Enum.FillDirection.Horizontal, 8,
+        Enum.HorizontalAlignment.Center, Enum.VerticalAlignment.Center)
+
+    local function makeKeyBtn(text, color, textColor)
+        local b = new("TextButton", {
+            Parent           = btnRow,
+            Size             = UDim2.new(0.5, -4, 0, 36),
+            BackgroundColor3 = color,
+            BorderSizePixel  = 0,
+            Font             = FONT_M,
+            TextSize         = TEXT_MD,
+            TextColor3       = textColor,
+            Text             = text,
+            AutoButtonColor  = false,
+            ZIndex           = 9002,
+        })
+        corner(b, R_MD)
+        return b
+    end
+
+    local checkBtn = makeKeyBtn("Check Key", Theme.Accent, Theme.AccentText)
+    local getKeyBtn
+    if getKeyUrl ~= "" then
+        getKeyBtn = makeKeyBtn("Get Key", Theme.Bg3, Theme.Text)
+        stroke(getKeyBtn, Theme.BorderHi, 1)
+    end
+
+    -- Try saved key
+    if savedKey then
+        pcall(function()
+            local saved = readfile(keyFileName)
+            if saved and saved ~= "" then
+                keyInput.Text = saved
+            end
+        end)
+    end
+
+    local resolved = false
+    local api = {}
+
+    checkBtn.MouseButton1Click:Connect(function()
+        local key = keyInput.Text
+        if key == "" then
+            statusLabel.Text = "Please enter a key"
+            statusLabel.TextColor3 = Color3.fromRGB(235, 65, 55)
+            return
+        end
+        statusLabel.Text = "Checking..."
+        statusLabel.TextColor3 = Theme.DimText
+        task.spawn(function()
+            local ok = checkKey(key)
+            if ok then
+                statusLabel.Text = "Key accepted!"
+                statusLabel.TextColor3 = Color3.fromRGB(48, 185, 120)
+                if savedKey then
+                    pcall(function() writefile(keyFileName, key) end)
+                end
+                resolved = true
+                task.delay(0.5, function()
+                    tween(overlay, 0.3, { BackgroundTransparency = 1 })
+                    tween(box, 0.3, { Position = UDim2.new(0.5, 0, 0.5, 40),
+                        BackgroundTransparency = 1 })
+                    task.delay(0.35, function()
+                        overlay:Destroy()
+                    end)
+                end)
+            else
+                statusLabel.Text = "Invalid key"
+                statusLabel.TextColor3 = Color3.fromRGB(235, 65, 55)
+                tween(inputStroke, 0.14, { Color = Color3.fromRGB(235, 65, 55) })
+                task.delay(1.5, function()
+                    if not resolved then
+                        statusLabel.Text = ""
+                        tween(inputStroke, 0.14, { Color = Theme.Border })
+                    end
+                end)
+            end
+        end)
+    end)
+
+    if getKeyBtn then
+        getKeyBtn.MouseButton1Click:Connect(function()
+            if setclipboard then
+                setclipboard(getKeyUrl)
+                statusLabel.Text = "Link copied to clipboard!"
+                statusLabel.TextColor3 = Theme.Accent
+            elseif openurl then
+                openurl(getKeyUrl)
+            end
+        end)
+    end
+
+    function api:IsResolved() return resolved end
+    function api:Destroy() if overlay and overlay.Parent then overlay:Destroy() end end
+
+    -- Block until key is accepted
+    while not resolved do task.wait(0.1) end
+    return api
 end
 
 local Window = {}
@@ -1109,6 +1360,36 @@ function Library:CreateWindow(opts)
 
     if mobile then makeMobileButton() end
 
+    -- Search bar
+    local searchBox = new("TextBox", {
+        Parent                 = titleBar,
+        AnchorPoint            = Vector2.new(1, 0.5),
+        Position               = UDim2.new(1, -76, 0.5, 0),
+        Size                   = UDim2.fromOffset(140, 26),
+        BackgroundColor3       = Theme.Bg2,
+        BorderSizePixel        = 0,
+        Font                   = FONT,
+        TextSize               = TEXT_SM,
+        TextColor3             = Theme.Text,
+        PlaceholderColor3      = Theme.DimText,
+        PlaceholderText        = "Search...",
+        Text                   = "",
+        TextXAlignment         = Enum.TextXAlignment.Left,
+        ClearTextOnFocus       = false,
+        ClipsDescendants       = true,
+        ZIndex                 = 10,
+    })
+    corner(searchBox, R_PILL)
+    pad(searchBox, 10, 0, 10, 0)
+    local searchStroke = stroke(searchBox, Theme.Border, 1)
+
+    searchBox.Focused:Connect(function()
+        tween(searchStroke, 0.14, { Color = Theme.Accent })
+    end)
+    searchBox.FocusLost:Connect(function()
+        tween(searchStroke, 0.14, { Color = Theme.Border })
+    end)
+
     local self = setmetatable({
         Root        = root,
         Shadow      = shadow,
@@ -1117,13 +1398,56 @@ function Library:CreateWindow(opts)
         TabRow      = tabRow,
         Indicator   = indicator,
         Content     = content,
+        SearchBox   = searchBox,
         Tabs        = {},
         ActiveTab   = nil,
         Title       = title,
     }, Window)
 
+    searchBox:GetPropertyChangedSignal("Text"):Connect(function()
+        self:_filterElements(searchBox.Text)
+    end)
+
     table.insert(Library.Windows, self)
     return self
+end
+
+function Window:_filterElements(query)
+    query = query:lower()
+    for _, tab in ipairs(self.Tabs) do
+        for _, section in ipairs(tab.Sections) do
+            for _, item in ipairs(section.Content:GetChildren()) do
+                if item:IsA("GuiObject") and not item:IsA("UIListLayout") and not item:IsA("UIPadding") then
+                    if query == "" then
+                        item.Visible = true
+                    else
+                        local found = false
+                        for _, desc in ipairs(item:GetDescendants()) do
+                            if desc:IsA("TextLabel") or desc:IsA("TextButton") or desc:IsA("TextBox") then
+                                if desc.Text and desc.Text:lower():find(query, 1, true) then
+                                    found = true
+                                    break
+                                end
+                            end
+                        end
+                        if item:IsA("TextLabel") and item.Text:lower():find(query, 1, true) then
+                            found = true
+                        end
+                        item.Visible = found
+                    end
+                end
+            end
+        end
+        -- Show all tabs when searching, hide if no results
+        if query ~= "" then
+            tab.Page.Visible = true
+        end
+    end
+    if query == "" and self.ActiveTab then
+        for _, t in ipairs(self.Tabs) do
+            t.Page.Visible = (t == self.ActiveTab)
+        end
+    end
 end
 
 function Window:_updateIndicator(tab, animate)
@@ -1301,10 +1625,39 @@ function Tab:CreateSection(name, _side)
     return section
 end
 
-function Section:AddLabel(text)
+function Section:AddLabel(text, iconName)
+    local hasIcon = iconName and type(iconName) == "string"
+    local iconImage, iconOffset, iconSize
+    if hasIcon then
+        iconImage, iconOffset, iconSize = getIcon(iconName)
+        hasIcon = iconImage ~= nil
+    end
+
+    local container
+    if hasIcon then
+        container = new("Frame", {
+            Parent                 = self.Content,
+            Size                   = UDim2.new(1, 0, 0, 18),
+            AutomaticSize          = Enum.AutomaticSize.Y,
+            BackgroundTransparency = 1,
+        })
+        local icon = new("ImageLabel", {
+            Parent              = container,
+            BackgroundTransparency = 1,
+            Size                = UDim2.new(0, 16, 0, 16),
+            Position            = UDim2.fromOffset(0, 1),
+            Image               = iconImage,
+            ImageRectOffset     = iconOffset,
+            ImageRectSize       = iconSize,
+            ImageColor3         = Theme.SubText,
+        })
+        bindTheme(icon, "ImageColor3", "SubText")
+    end
+
     local lbl = new("TextLabel", {
-        Parent                 = self.Content,
-        Size                   = UDim2.new(1, 0, 0, 18),
+        Parent                 = hasIcon and container or self.Content,
+        Size                   = hasIcon and UDim2.new(1, -22, 0, 18) or UDim2.new(1, 0, 0, 18),
+        Position               = hasIcon and UDim2.fromOffset(22, 0) or UDim2.new(0, 0, 0, 0),
         AutomaticSize          = Enum.AutomaticSize.Y,
         BackgroundTransparency = 1,
         Font                   = FONT,
@@ -1397,14 +1750,36 @@ function Section:AddButton(opts)
     local s
     if style == "outlined" then s = stroke(btn, Theme.BorderHi, 1) end
 
+    local hasIcon = opts.Icon and type(opts.Icon) == "string"
+    local iconImage, iconOffset, iconSize
+    if hasIcon then
+        iconImage, iconOffset, iconSize = getIcon(opts.Icon)
+        hasIcon = iconImage ~= nil
+    end
+
+    if hasIcon then
+        local icon = new("ImageLabel", {
+            Parent              = btn,
+            BackgroundTransparency = 1,
+            Size                = UDim2.new(0, 18, 0, 18),
+            Position            = UDim2.new(0, 10, 0.5, -9),
+            Image               = iconImage,
+            ImageRectOffset     = iconOffset,
+            ImageRectSize       = iconSize,
+            ImageColor3         = (style == "filled") and Theme.AccentText or Theme.Text,
+        })
+        bindTheme(icon, "ImageColor3", (style == "filled") and "AccentText" or "Text")
+    end
+
     local label = new("TextLabel", {
         Parent                 = btn,
         BackgroundTransparency = 1,
-        Size                   = UDim2.fromScale(1, 1),
+        Size                   = hasIcon and UDim2.new(1, -32, 1, 0) or UDim2.fromScale(1, 1),
+        Position               = hasIcon and UDim2.new(0, 32, 0, 0) or UDim2.new(0, 0, 0, 0),
         Font                   = FONT_M,
         TextSize               = TEXT_MD,
         TextColor3             = (style == "filled") and Theme.AccentText or Theme.Text,
-        TextXAlignment         = Enum.TextXAlignment.Center,
+        TextXAlignment         = hasIcon and Enum.TextXAlignment.Left or Enum.TextXAlignment.Center,
         Text                   = text,
     })
 
@@ -1448,10 +1823,32 @@ function Section:AddToggle(opts)
     corner(row, R_MD)
     pad(row, 4, 0, 4, 0)
 
+    local hasIcon = opts.Icon and type(opts.Icon) == "string"
+    local iconImage, iconOffset, iconSize
+    if hasIcon then
+        iconImage, iconOffset, iconSize = getIcon(opts.Icon)
+        hasIcon = iconImage ~= nil
+    end
+
+    if hasIcon then
+        local icon = new("ImageLabel", {
+            Parent              = row,
+            BackgroundTransparency = 1,
+            Size                = UDim2.new(0, 18, 0, 18),
+            Position            = UDim2.new(0, 6, 0.5, -9),
+            Image               = iconImage,
+            ImageRectOffset     = iconOffset,
+            ImageRectSize       = iconSize,
+            ImageColor3         = Theme.Text,
+        })
+        bindTheme(icon, "ImageColor3", "Text")
+    end
+
     local label = new("TextLabel", {
         Parent                 = row,
         BackgroundTransparency = 1,
-        Size                   = UDim2.new(1, -54, 1, 0),
+        Size                   = UDim2.new(1, hasIcon and -78 or -54, 1, 0),
+        Position               = hasIcon and UDim2.new(0, 24, 0, 0) or UDim2.new(0, 0, 0, 0),
         Font                   = FONT_M,
         TextSize               = TEXT_MD,
         TextColor3             = Theme.Text,
@@ -1553,11 +1950,32 @@ function Section:AddSlider(opts)
     })
     pad(frame, 4, 0, 4, 0)
 
+    local hasIcon = opts.Icon and type(opts.Icon) == "string"
+    local iconImage, iconOffset, iconSize
+    if hasIcon then
+        iconImage, iconOffset, iconSize = getIcon(opts.Icon)
+        hasIcon = iconImage ~= nil
+    end
+
+    if hasIcon then
+        local icon = new("ImageLabel", {
+            Parent              = frame,
+            BackgroundTransparency = 1,
+            Size                = UDim2.new(0, 14, 0, 14),
+            Position            = UDim2.fromOffset(2, 1),
+            Image               = iconImage,
+            ImageRectOffset     = iconOffset,
+            ImageRectSize       = iconSize,
+            ImageColor3         = Theme.SubText,
+        })
+        bindTheme(icon, "ImageColor3", "SubText")
+    end
+
     local label = new("TextLabel", {
         Parent                 = frame,
         BackgroundTransparency = 1,
-        Position               = UDim2.fromOffset(2, 0),
-        Size                   = UDim2.new(1, -4, 0, 16),
+        Position               = hasIcon and UDim2.fromOffset(20, 0) or UDim2.fromOffset(2, 0),
+        Size                   = UDim2.new(1, hasIcon and -22 or -4, 0, 16),
         Font                   = FONT_M,
         TextSize               = TEXT_SM,
         TextColor3             = Theme.SubText,
@@ -1673,11 +2091,33 @@ function Section:AddDropdown(opts)
         Size                   = UDim2.new(1, 0, 0, 54),
         BackgroundTransparency = 1,
     })
+
+    local hasIcon = opts.Icon and type(opts.Icon) == "string"
+    local iconImage, iconOffset, iconSize
+    if hasIcon then
+        iconImage, iconOffset, iconSize = getIcon(opts.Icon)
+        hasIcon = iconImage ~= nil
+    end
+
+    if hasIcon then
+        local icon = new("ImageLabel", {
+            Parent              = frame,
+            BackgroundTransparency = 1,
+            Size                = UDim2.new(0, 14, 0, 14),
+            Position            = UDim2.fromOffset(2, 1),
+            Image               = iconImage,
+            ImageRectOffset     = iconOffset,
+            ImageRectSize       = iconSize,
+            ImageColor3         = Theme.SubText,
+        })
+        bindTheme(icon, "ImageColor3", "SubText")
+    end
+
     new("TextLabel", {
         Parent                 = frame,
         BackgroundTransparency = 1,
-        Position               = UDim2.fromOffset(2, 0),
-        Size                   = UDim2.new(1, 0, 0, 16),
+        Position               = hasIcon and UDim2.fromOffset(20, 0) or UDim2.fromOffset(2, 0),
+        Size                   = UDim2.new(1, hasIcon and -18 or 0, 0, 16),
         Font                   = FONT_M,
         TextSize               = TEXT_SM,
         TextColor3             = Theme.SubText,
@@ -1815,7 +2255,19 @@ function Section:AddDropdown(opts)
     function api:Refresh(newOptions, keepSelection)
         options = newOptions or {}
         for _, c in ipairs(listScroll:GetChildren()) do
-            if c:IsA("TextButton") then c:Destroy() end
+            if c:IsA("TextButton") or c:IsA("TextLabel") then c:Destroy() end
+        end
+        if #options == 0 then
+            new("TextLabel", {
+                Parent                 = listScroll,
+                Size                   = UDim2.new(1, 0, 0, 28),
+                BackgroundTransparency = 1,
+                Font                   = FONT,
+                TextSize               = TEXT_SM,
+                TextColor3             = Theme.DimText,
+                Text                   = "No items",
+                ZIndex                 = 1001,
+            })
         end
         for i, opt in ipairs(options) do
             local item = new("TextButton", {
@@ -2072,9 +2524,21 @@ function Section:AddMultiDropdown(opts)
     function api:Refresh(newOptions)
         options = newOptions or {}
         for _, c in ipairs(listScroll:GetChildren()) do
-            if c:IsA("TextButton") then c:Destroy() end
+            if c:IsA("TextButton") or c:IsA("TextLabel") then c:Destroy() end
         end
         items = {}
+        if #options == 0 then
+            new("TextLabel", {
+                Parent                 = listScroll,
+                Size                   = UDim2.new(1, 0, 0, 28),
+                BackgroundTransparency = 1,
+                Font                   = FONT,
+                TextSize               = TEXT_SM,
+                TextColor3             = Theme.DimText,
+                Text                   = "No items",
+                ZIndex                 = 1001,
+            })
+        end
         for i, opt in ipairs(options) do
             local item = new("TextButton", {
                 Parent                 = listScroll,
@@ -2154,11 +2618,33 @@ function Section:AddTextbox(opts)
         Size                   = UDim2.new(1, 0, 0, 54),
         BackgroundTransparency = 1,
     })
+
+    local hasIcon = opts.Icon and type(opts.Icon) == "string"
+    local iconImage, iconOffset, iconSize
+    if hasIcon then
+        iconImage, iconOffset, iconSize = getIcon(opts.Icon)
+        hasIcon = iconImage ~= nil
+    end
+
+    if hasIcon then
+        local icon = new("ImageLabel", {
+            Parent              = frame,
+            BackgroundTransparency = 1,
+            Size                = UDim2.new(0, 14, 0, 14),
+            Position            = UDim2.fromOffset(2, 1),
+            Image               = iconImage,
+            ImageRectOffset     = iconOffset,
+            ImageRectSize       = iconSize,
+            ImageColor3         = Theme.SubText,
+        })
+        bindTheme(icon, "ImageColor3", "SubText")
+    end
+
     new("TextLabel", {
         Parent                 = frame,
         BackgroundTransparency = 1,
-        Position               = UDim2.fromOffset(2, 0),
-        Size                   = UDim2.new(1, 0, 0, 16),
+        Position               = hasIcon and UDim2.fromOffset(20, 0) or UDim2.fromOffset(2, 0),
+        Size                   = UDim2.new(1, hasIcon and -18 or 0, 0, 16),
         Font                   = FONT_M,
         TextSize               = TEXT_SM,
         TextColor3             = Theme.SubText,
@@ -2235,10 +2721,32 @@ function Section:AddKeybind(opts)
     })
     pad(row, 4, 0, 4, 0)
 
+    local hasIcon = opts.Icon and type(opts.Icon) == "string"
+    local iconImage, iconOffset, iconSize
+    if hasIcon then
+        iconImage, iconOffset, iconSize = getIcon(opts.Icon)
+        hasIcon = iconImage ~= nil
+    end
+
+    if hasIcon then
+        local icon = new("ImageLabel", {
+            Parent              = row,
+            BackgroundTransparency = 1,
+            Size                = UDim2.new(0, 18, 0, 18),
+            Position            = UDim2.new(0, 6, 0.5, -9),
+            Image               = iconImage,
+            ImageRectOffset     = iconOffset,
+            ImageRectSize       = iconSize,
+            ImageColor3         = Theme.Text,
+        })
+        bindTheme(icon, "ImageColor3", "Text")
+    end
+
     new("TextLabel", {
         Parent                 = row,
         BackgroundTransparency = 1,
-        Size                   = UDim2.new(1, -110, 1, 0),
+        Size                   = UDim2.new(1, hasIcon and -134 or -110, 1, 0),
+        Position               = hasIcon and UDim2.new(0, 24, 0, 0) or UDim2.new(0, 0, 0, 0),
         Font                   = FONT_M,
         TextSize               = TEXT_MD,
         TextColor3             = Theme.Text,
@@ -2408,10 +2916,32 @@ function Section:AddColorpicker(opts)
     })
     pad(row, 4, 0, 4, 0)
 
+    local hasIcon = opts.Icon and type(opts.Icon) == "string"
+    local iconImage, iconOffset, iconSize
+    if hasIcon then
+        iconImage, iconOffset, iconSize = getIcon(opts.Icon)
+        hasIcon = iconImage ~= nil
+    end
+
+    if hasIcon then
+        local icon = new("ImageLabel", {
+            Parent              = row,
+            BackgroundTransparency = 1,
+            Size                = UDim2.new(0, 18, 0, 18),
+            Position            = UDim2.new(0, 6, 0.5, -9),
+            Image               = iconImage,
+            ImageRectOffset     = iconOffset,
+            ImageRectSize       = iconSize,
+            ImageColor3         = Theme.Text,
+        })
+        bindTheme(icon, "ImageColor3", "Text")
+    end
+
     new("TextLabel", {
         Parent                 = row,
         BackgroundTransparency = 1,
-        Size                   = UDim2.new(1, -50, 1, 0),
+        Size                   = UDim2.new(1, hasIcon and -74 or -50, 1, 0),
+        Position               = hasIcon and UDim2.new(0, 24, 0, 0) or UDim2.new(0, 0, 0, 0),
         Font                   = FONT_M,
         TextSize               = TEXT_MD,
         TextColor3             = Theme.Text,
@@ -2812,6 +3342,17 @@ function Library:Notify(opts)
     local title    = tostring(opts.Title or "Notification")
     local text     = tostring(opts.Text or "")
     local duration = tonumber(opts.Duration) or 3.5
+    local nType    = (opts.Type or "info"):lower()
+    local iconName = opts.Icon
+    local onClick  = opts.Callback
+
+    local typeColors = {
+        info    = Theme.Accent,
+        success = Color3.fromRGB(48, 185, 120),
+        warning = Color3.fromRGB(245, 166, 35),
+        error   = Color3.fromRGB(235, 65, 55),
+    }
+    local barColor = typeColors[nType] or Theme.Accent
 
     local holder = getNotifyHolder()
 
@@ -2851,6 +3392,41 @@ function Library:Notify(opts)
         SliceCenter            = Rect.new(12, 12, 244, 244),
     })
 
+    -- Type accent stripe on left side
+    new("Frame", {
+        Parent           = card,
+        Size             = UDim2.new(0, 3, 1, -8),
+        Position         = UDim2.fromOffset(0, 4),
+        BackgroundColor3 = barColor,
+        BorderSizePixel  = 0,
+        ZIndex           = 5003,
+    })
+
+    local contentPadLeft = 10
+
+    -- Icon support
+    local hasIcon = iconName and type(iconName) == "string"
+    local iconImage, iconOffset, iconSize
+    if hasIcon then
+        iconImage, iconOffset, iconSize = getIcon(iconName)
+        hasIcon = iconImage ~= nil
+    end
+
+    if hasIcon then
+        new("ImageLabel", {
+            Parent              = card,
+            BackgroundTransparency = 1,
+            Size                = UDim2.new(0, 16, 0, 16),
+            Position            = UDim2.fromOffset(10, 10),
+            Image               = iconImage,
+            ImageRectOffset     = iconOffset,
+            ImageRectSize       = iconSize,
+            ImageColor3         = barColor,
+            ZIndex              = 5003,
+        })
+        contentPadLeft = 30
+    end
+
     local content = new("Frame", {
         Parent                 = card,
         Name                   = "Content",
@@ -2859,8 +3435,17 @@ function Library:Notify(opts)
         BackgroundTransparency = 1,
         ZIndex                 = 5002,
     })
-    pad(content, 10, 8, 10, 10)
+    pad(content, contentPadLeft, 8, 10, 10)
     listLayout(content, Enum.FillDirection.Vertical, 2)
+
+    -- Click-to-dismiss
+    local dismissBtn = new("TextButton", {
+        Parent                 = card,
+        Size                   = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        Text                   = "",
+        ZIndex                 = 5004,
+    })
 
     new("TextLabel", {
         Parent                 = content,
@@ -2895,7 +3480,7 @@ function Library:Notify(opts)
         AnchorPoint      = Vector2.new(0, 1),
         Position         = UDim2.new(0, 0, 1, 0),
         Size             = UDim2.new(1, 0, 0, 2),
-        BackgroundColor3 = Theme.Accent,
+        BackgroundColor3 = barColor,
         BorderSizePixel  = 0,
         ZIndex           = 5002,
     })
@@ -2932,6 +3517,11 @@ function Library:Notify(opts)
     end
 
     local entry = { Card = card, Slot = slot, Closed = false }
+
+    dismissBtn.MouseButton1Click:Connect(function()
+        if onClick then task.spawn(onClick) end
+        entry:Close()
+    end)
 
     function entry:Close(fast)
         if self.Closed then return end
